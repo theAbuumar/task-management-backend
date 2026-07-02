@@ -51,7 +51,23 @@ export async function findOrCreateFromProvider(
       },
       include: { user: true },
     });
-    if (identity) return identity.user;
+    if (identity) {
+      // Already linked. Still lift a dormant account: an email+password signup that
+      // never confirmed its OTP may have been linked on an earlier sign-in and left
+      // inactive/unverified. A provider that now vouches for the email proves ownership,
+      // so activate + verify (and drop the never-confirmed password). Only fires while
+      // dormant, so a normal returning login is untouched.
+      if (
+        profile.email_verified &&
+        (!identity.user.email_verified || !identity.user.is_active)
+      ) {
+        return tx.user.update({
+          where: { id: identity.user.id },
+          data: { email_verified: true, is_active: true, password_hash: null },
+        });
+      }
+      return identity.user;
+    }
 
     // 2. Auto-merge onto an existing account by verified email (§5).
     if (profile.email && profile.email_verified) {
