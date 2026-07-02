@@ -10,6 +10,8 @@
 // swagger, etc.) and the `/api/v1` module tree land in subsequent Phase 0/1 tasks.
 
 import Fastify, { type FastifyInstance } from 'fastify';
+import cookie from '@fastify/cookie';
+import rateLimit from '@fastify/rate-limit';
 import type { LoggerOptions } from 'pino';
 import { config, isDev } from './config/index.js';
 import errorHandlerPlugin from './plugins/error-handler.js';
@@ -79,6 +81,16 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // (helmet, cors, rate-limit) are added in the Phase 4 hardening pass.
   await app.register(errorHandlerPlugin);
   await app.register(swaggerPlugin);
+  // Parse/serialize cookies so the auth layer can deliver the refresh token as an
+  // httpOnly cookie and read it back on refresh/logout (auth_tz.md §8). No signing
+  // secret: the cookie value is a JWT already signed + verified against the DB.
+  await app.register(cookie);
+  // Per-IP rate limiting, registered globally-disabled: only routes that opt in via
+  // `config.rateLimit` are limited (the sensitive auth/OTP endpoints — see
+  // modules/auth/routes.ts). Keyed on the client IP (trustProxy resolves it behind
+  // the proxy). On limit the plugin raises a 429 that the error handler renders as
+  // the standard RATE_LIMITED envelope (see plugins/error-handler.ts).
+  await app.register(rateLimit, { global: false });
   await app.register(prismaPlugin);
   await app.register(storagePlugin);
   await app.register(authPlugin);

@@ -63,6 +63,10 @@ export class AppError extends Error {
   static gone(message = 'Resource is no longer available', details?: unknown): AppError {
     return new AppError(410, 'GONE', message, details);
   }
+
+  static rateLimited(message = 'Too many requests', details?: unknown): AppError {
+    return new AppError(429, 'RATE_LIMITED', message, details);
+  }
 }
 
 /** The shape every error response takes (TZ §8 error envelope). */

@@ -61,18 +61,46 @@ enum NotificationType {
   mentioned
 }
 
+// ─── Auth: providers & login-flow enums (auth_tz.md §2) ──────────────────────
+
+// A login method attached to an account. One user may have several.
+enum AuthProvider {
+  email
+  google
+  github
+  telegram
+}
+
+// What an email OTP is being used for.
+enum EmailOtpPurpose {
+  signup
+  login
+}
+
+// Lifecycle of a Telegram deep-link login token.
+enum TelegramLoginStatus {
+  pending
+  confirmed
+  expired
+  used
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model User {
   id            String   @id @default(uuid())
-  email         String   @unique
-  password_hash String
+  // Nullable: Telegram-only accounts have no email (auth_tz.md §2). Still unique when present.
+  email         String?  @unique
+  email_verified Boolean @default(false)
+  // Nullable: accounts created via OAuth/Telegram have no password until they set one.
+  password_hash String?
   display_name  String
   avatar_url    String?
   is_active     Boolean  @default(true)
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
 
+  identities            AuthIdentity[]
   refresh_tokens        RefreshToken[]
   workspace_memberships WorkspaceMember[]
   project_memberships   ProjectMember[]
@@ -101,6 +129,56 @@ model RefreshToken {
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
+}
+
+// A single login method bound to an account (auth_tz.md §2).
+// `provider_user_id` is the provider's stable id (Google `sub`, GitHub numeric id,
+// Telegram id); null for the `email` provider. UNIQUE(provider, provider_user_id)
+// prevents the same external identity attaching to two accounts. In Postgres NULLs
+// are distinct, so many `email` rows (null provider_user_id) coexist without clashing.
+model AuthIdentity {
+  id               String       @id @default(uuid())
+  user_id          String
+  provider         AuthProvider
+  provider_user_id String?
+  provider_email   String?
+  created_at       DateTime     @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider, provider_user_id])
+  @@index([user_id])
+}
+
+// Email one-time codes for signup/login verification (auth_tz.md §6, §9).
+// Only the hash of the code is stored; `attempts` caps brute force; `consumed_at`
+// makes a code single-use.
+model EmailOtp {
+  id          String          @id @default(uuid())
+  email       String
+  code_hash   String
+  purpose     EmailOtpPurpose
+  expires_at  DateTime
+  attempts    Int             @default(0)
+  consumed_at DateTime?
+  created_at  DateTime        @default(now())
+
+  @@index([email])
+}
+
+// Telegram deep-link login handshake (auth_tz.md §7). Created `pending` and bound to
+// the initiating browser session; the bot fills `telegram_id` and flips it to
+// `confirmed`; the polling endpoint consumes it (`used`). One-time, short-lived.
+model TelegramLoginToken {
+  id          String              @id @default(uuid())
+  token       String              @unique
+  session_id  String
+  telegram_id String?
+  status      TelegramLoginStatus @default(pending)
+  expires_at  DateTime
+  created_at  DateTime            @default(now())
+
+  @@index([session_id])
 }
 
 model Workspace {

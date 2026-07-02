@@ -1,10 +1,11 @@
-// Email sending utility.
+// Transactional email builders.
 //
-// In dev/test the invite details are logged to stdout so tokens are visible
-// without needing an SMTP server. In production, wire up a real transport here
-// (nodemailer, Resend, SendGrid, etc.).
+// Each function shapes a specific message (subject + body) and hands it to the
+// shared transport (`lib/mailer`). The transport decides delivery (console stub
+// in dev/test, SMTP in prod), so these stay pure and easy to read/test.
 
-import { config } from '../config/index.js';
+import { sendMail } from './mailer.js';
+import type { EmailOtpPurpose } from '@prisma/client';
 
 export interface InviteEmailPayload {
   to: string;
@@ -15,26 +16,34 @@ export interface InviteEmailPayload {
 }
 
 export async function sendInviteEmail(payload: InviteEmailPayload): Promise<void> {
-  if (config.NODE_ENV !== 'production') {
-    // eslint-disable-next-line no-console
-    console.info(
-      [
-        '',
-        '┌─ [EMAIL STUB] Workspace Invite ─────────────────────────────',
-        `│ To:         ${payload.to}`,
-        `│ Workspace:  ${payload.workspaceName}`,
-        `│ Invited by: ${payload.inviterName}`,
-        `│ Accept URL: ${payload.inviteUrl}`,
-        `│ Expires:    ${payload.expiresAt.toISOString()}`,
-        '└─────────────────────────────────────────────────────────────',
-        '',
-      ].join('\n'),
-    );
-    return;
-  }
+  await sendMail({
+    to: payload.to,
+    subject: `You've been invited to join ${payload.workspaceName}`,
+    text: [
+      `${payload.inviterName} invited you to join the "${payload.workspaceName}" workspace.`,
+      '',
+      `Accept the invite: ${payload.inviteUrl}`,
+      `This invite expires on ${payload.expiresAt.toISOString()}.`,
+    ].join('\n'),
+  });
+}
 
-  // Production: replace with a real provider (nodemailer, Resend, etc.)
-  throw new Error(
-    'Email sending is not configured. Set SMTP_* environment variables and implement sendInviteEmail.',
-  );
+/** Send a one-time verification code (auth_tz.md §6). `purpose` tailors the copy. */
+export async function sendOtpEmail(
+  to: string,
+  code: string,
+  purpose: EmailOtpPurpose,
+): Promise<void> {
+  const action = purpose === 'signup' ? 'confirm your email address' : 'sign in';
+  await sendMail({
+    to,
+    subject: `Your verification code: ${code}`,
+    text: [
+      `Use this code to ${action}:`,
+      '',
+      `    ${code}`,
+      '',
+      'The code expires in 10 minutes. If you did not request it, you can ignore this email.',
+    ].join('\n'),
+  });
 }

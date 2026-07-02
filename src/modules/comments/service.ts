@@ -129,9 +129,16 @@ async function resolveMentions(
   });
 
   const handleSet = new Set(handles);
-  return members
-    .filter((m) => handleSet.has((m.user.email.split('@')[0] ?? '').toLowerCase()))
-    .map((m) => m.user.id);
+  return (
+    members
+      // Mentions match on the email local-part; accounts without an email
+      // (e.g. Telegram-only) simply can't be @-mentioned.
+      .filter((m) => {
+        if (!m.user.email) return false;
+        return handleSet.has((m.user.email.split('@')[0] ?? '').toLowerCase());
+      })
+      .map((m) => m.user.id)
+  );
 }
 
 export async function updateComment(

@@ -31,7 +31,9 @@ export async function getInvite(prisma: PrismaClient, token: string): Promise<In
     role: invite.role,
     expires_at: invite.expires_at,
     workspace: invite.workspace,
-    invited_by: invite.invited_by,
+    // The inviter is an email-based member, so email is present; coerce for the
+    // now-nullable User.email type without widening the public response shape.
+    invited_by: { ...invite.invited_by, email: invite.invited_by.email ?? '' },
   };
 }
 
@@ -53,7 +55,8 @@ export async function acceptInvite(
   if (!user) throw AppError.notFound('User not found');
 
   // Validate the accepting user's email matches the invite (prevents token sharing).
-  if (user.email.toLowerCase() !== invite.email.toLowerCase()) {
+  // An account without an email (Telegram-only) can never match an email invite.
+  if (!user.email || user.email.toLowerCase() !== invite.email.toLowerCase()) {
     throw AppError.forbidden('This invite was sent to a different email address');
   }
 

@@ -14,7 +14,8 @@ describe('parseEnv', () => {
   it('applies defaults and coerces types', () => {
     const env = parseEnv({ ...valid });
     expect(env.PORT).toBe(3000);
-    expect(env.JWT_ACCESS_TTL).toBe('15m');
+    expect(env.JWT_ACCESS_TTL).toBe('3h');
+    expect(env.JWT_REFRESH_TTL).toBe('30d');
     expect(env.CORS_ORIGIN).toBe('*');
   });
 

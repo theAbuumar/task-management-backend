@@ -36,8 +36,59 @@ export const envSchema = z
     // --- Auth / JWT --- (secrets required; no defaults, never committed)
     JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
     JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 characters'),
-    JWT_ACCESS_TTL: duration.default('15m'),
-    JWT_REFRESH_TTL: duration.default('7d'),
+    // auth_tz.md §8: access token lives ~3h, refresh ~30 days (httpOnly cookie).
+    JWT_ACCESS_TTL: duration.default('3h'),
+    JWT_REFRESH_TTL: duration.default('30d'),
+
+    // --- Session cookie --- (refresh token is delivered as an httpOnly cookie; auth_tz.md §8)
+    SESSION_COOKIE_NAME: z.string().min(1).default('refresh_token'),
+    /** Cookie Domain attribute; leave empty to scope to the exact host. */
+    SESSION_COOKIE_DOMAIN: z.string().optional(),
+    /** Send the cookie only over HTTPS. Defaults on outside development. */
+    SESSION_COOKIE_SECURE: z
+      .enum(['true', 'false'])
+      .optional()
+      .transform((v) => (v === undefined ? undefined : v === 'true')),
+    /** SameSite policy for the refresh cookie. `lax` works for top-level OAuth redirects. */
+    SESSION_COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
+
+    // --- Frontend --- (where OAuth/Telegram flows redirect the browser back to)
+    FRONTEND_URL: z.string().url().default('http://localhost:5173'),
+
+    // --- Email / SMTP --- (transactional email: OTP codes, invites; auth_tz.md §6)
+    // Dev/test with no SMTP_HOST logs emails to the console. In production (or any
+    // env with SMTP_HOST set) mail is sent via this SMTP transport.
+    SMTP_HOST: z.string().min(1).optional(),
+    SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+    /** Use implicit TLS (true for port 465); STARTTLS is negotiated otherwise. */
+    SMTP_SECURE: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
+    SMTP_USER: z.string().min(1).optional(),
+    SMTP_PASS: z.string().min(1).optional(),
+    /** From: address on outgoing mail. */
+    MAIL_FROM: z.string().min(1).default('Task Management <no-reply@taskmgmt.local>'),
+
+    // --- OAuth: Google --- (required only when the Google flow is used; validated lazily)
+    GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+    GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+    GOOGLE_CALLBACK_URL: z.string().url().optional(),
+
+    // --- OAuth: GitHub ---
+    GITHUB_CLIENT_ID: z.string().min(1).optional(),
+    GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
+    GITHUB_CALLBACK_URL: z.string().url().optional(),
+
+    // --- Telegram bot --- (deep-link login; auth_tz.md §7)
+    TELEGRAM_BOT_TOKEN: z.string().min(1).optional(),
+    TELEGRAM_BOT_USERNAME: z.string().min(1).optional(),
+    /**
+     * Shared secret registered with Telegram's `setWebhook` (`secret_token`). When
+     * set, the webhook route requires a matching `X-Telegram-Bot-Api-Secret-Token`
+     * header so only Telegram can post updates. Optional in dev/test.
+     */
+    TELEGRAM_WEBHOOK_SECRET: z.string().min(1).optional(),
 
     // --- CORS --- (comma-separated origins, or `*`; configured per environment)
     CORS_ORIGIN: z.string().min(1).default('*'),
