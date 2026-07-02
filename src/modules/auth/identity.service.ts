@@ -65,6 +65,18 @@ export async function findOrCreateFromProvider(
             provider_email: profile.email,
           },
         });
+        // The provider vouched for this email, so the account is proven to belong to
+        // the same person. Promote a still-dormant account (e.g. an email+password
+        // signup that never confirmed its OTP) to verified + active — otherwise it
+        // stays locked out forever after signing in with Google/GitHub. The
+        // never-confirmed password is cleared: it was set before ownership was ever
+        // proven, so we don't let it keep working on the now-active account.
+        if (!existing.email_verified || !existing.is_active) {
+          return tx.user.update({
+            where: { id: existing.id },
+            data: { email_verified: true, is_active: true, password_hash: null },
+          });
+        }
         return existing;
       }
     }
