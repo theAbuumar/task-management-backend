@@ -19,7 +19,8 @@
     "typecheck": "tsc --noEmit",
     "prisma:migrate": "prisma migrate dev",
     "prisma:generate": "prisma generate",
-    "prisma:seed": "prisma db seed"
+    "prisma:seed": "prisma db seed",
+    "telegram:set-webhook": "tsx src/scripts/set-telegram-webhook.ts"
   },
   "prisma": {
     "schema": "src/prisma/schema.prisma",
