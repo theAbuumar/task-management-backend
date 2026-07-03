@@ -55,7 +55,11 @@ export const envSchema = z
     // --- Frontend --- (where OAuth/Telegram flows redirect the browser back to)
     FRONTEND_URL: z.string().url().default('http://localhost:5173'),
 
-    // --- Email / SMTP --- (transactional email: OTP codes, invites; auth_tz.md §6)
+    // --- Email --- (transactional email: OTP codes, invites; auth_tz.md §6)
+    // Delivery precedence (see lib/mailer): RESEND_API_KEY (HTTP API, port 443 —
+    // preferred on hosts that throttle/block outbound SMTP like Render) → SMTP_* →
+    // console stub in dev/test. A Resend SMTP_PASS doubles as the API key.
+    RESEND_API_KEY: z.string().min(1).optional(),
     // Dev/test with no SMTP_HOST logs emails to the console. In production (or any
     // env with SMTP_HOST set) mail is sent via this SMTP transport.
     SMTP_HOST: z.string().min(1).optional(),

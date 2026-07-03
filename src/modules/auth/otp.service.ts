@@ -16,7 +16,7 @@ const TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_ATTEMPTS = 5;
 const RATE_MIN_INTERVAL_MS = 60 * 1000; // at most 1 send / 60s
 const RATE_WINDOW_MS = 60 * 60 * 1000; // rolling 1-hour window
-const RATE_MAX_PER_WINDOW = 5; // at most 5 sends / hour
+const RATE_MAX_PER_WINDOW = 60; // at most 60 sends / hour
 
 /** Cryptographically-random zero-padded 6-digit code. */
 function generateCode(): string {
