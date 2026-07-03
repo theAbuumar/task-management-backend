@@ -75,6 +75,7 @@ enum AuthProvider {
 enum EmailOtpPurpose {
   signup
   login
+  delete_account
 }
 
 // Lifecycle of a Telegram deep-link login token.

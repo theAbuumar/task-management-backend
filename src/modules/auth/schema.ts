@@ -46,6 +46,12 @@ export const EmailVerifyBodySchema = z.object({
   code: z.string().regex(/^\d{6}$/, 'Code must be 6 digits'),
 });
 
+// Confirm account deletion: the 6-digit code emailed to the logged-in user. The
+// email/user is taken from the session, so only the code is sent.
+export const AccountDeleteConfirmBodySchema = z.object({
+  code: z.string().regex(/^\d{6}$/, 'Code must be 6 digits'),
+});
+
 // Google OAuth callback query params. All optional: Google sends `code` + `state`
 // on success, or `error` (e.g. `access_denied`) when the user declines consent.
 export const GoogleCallbackQuerySchema = z.object({
@@ -123,6 +129,7 @@ export type RefreshBody = z.infer<typeof RefreshBodySchema>;
 export type UpdateMeBody = z.infer<typeof UpdateMeBodySchema>;
 export type EmailSignupBody = z.infer<typeof EmailSignupBodySchema>;
 export type EmailVerifyBody = z.infer<typeof EmailVerifyBodySchema>;
+export type AccountDeleteConfirmBody = z.infer<typeof AccountDeleteConfirmBodySchema>;
 export type GoogleCallbackQuery = z.infer<typeof GoogleCallbackQuerySchema>;
 export type GithubCallbackQuery = z.infer<typeof GithubCallbackQuerySchema>;
 export type TelegramStatusQuery = z.infer<typeof TelegramStatusQuerySchema>;
@@ -491,6 +498,37 @@ export const unlinkIdentityRouteSchema: FastifySchema = {
   },
   response: responses({
     204: { type: 'null', description: 'Unlinked' },
+  }),
+};
+
+// ─── Code-confirmed account deletion ──────────────────────────────────────────
+
+export const accountDeleteRequestRouteSchema: FastifySchema = {
+  tags: ['Auth'],
+  summary: 'Request account deletion — emails the current user a 6-digit confirmation code',
+  description:
+    'Starts the code-confirmed deletion flow for the logged-in account. Emails a 6-digit OTP (`delete_account` purpose) to the account’s address, then the client confirms via `POST /auth/account/delete/confirm`. Rejected (400) for accounts with no email.',
+  security: [{ bearerAuth: [] }],
+  response: responses({
+    200: otpChallenge,
+  }),
+};
+
+export const accountDeleteConfirmRouteSchema: FastifySchema = {
+  tags: ['Auth'],
+  summary: 'Confirm account deletion with the emailed code — scrubs and deactivates the account',
+  description:
+    'Validates the 6-digit code from `POST /auth/account/delete/request`, then deletes the account by anonymizing it: removes all login methods and refresh tokens (logging the user out everywhere) and clears email / password / display name / avatar. Everything the user touched is retained and attributed to a deleted user — owned workspaces, memberships, issue assignments, and authored issues/comments. Clears the refresh cookie.',
+  security: [{ bearerAuth: [] }],
+  body: {
+    type: 'object',
+    required: ['code'],
+    properties: {
+      code: { type: 'string', pattern: '^\\d{6}$' },
+    },
+  },
+  response: responses({
+    204: { type: 'null', description: 'Account deleted' },
   }),
 };
 

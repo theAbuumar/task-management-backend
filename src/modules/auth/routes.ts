@@ -10,6 +10,8 @@ import {
   emailSignupRouteSchema,
   emailVerifyRouteSchema,
   emailLoginRouteSchema,
+  accountDeleteRequestRouteSchema,
+  accountDeleteConfirmRouteSchema,
   googleRedirectRouteSchema,
   googleCallbackRouteSchema,
   githubRedirectRouteSchema,
@@ -30,6 +32,8 @@ import {
   updateMeHandler,
   emailSignupHandler,
   emailVerifyHandler,
+  accountDeleteRequestHandler,
+  accountDeleteConfirmHandler,
   googleRedirectHandler,
   googleCallbackHandler,
   githubRedirectHandler,
@@ -81,6 +85,18 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.get('/telegram/status', { schema: telegramStatusRouteSchema }, telegramStatusHandler);
   app.post('/refresh', { schema: refreshRouteSchema, config: authRateLimit }, refreshHandler);
   app.post('/logout', { schema: logoutRouteSchema }, logoutHandler);
+  // Code-confirmed account deletion — both require a session; rate-limited like the
+  // other sensitive endpoints (per-email OTP throttle in otp.service applies too).
+  app.post(
+    '/account/delete/request',
+    { schema: accountDeleteRequestRouteSchema, preHandler: [authenticate], config: authRateLimit },
+    accountDeleteRequestHandler,
+  );
+  app.post(
+    '/account/delete/confirm',
+    { schema: accountDeleteConfirmRouteSchema, preHandler: [authenticate], config: authRateLimit },
+    accountDeleteConfirmHandler,
+  );
   // Connected-accounts management (auth_tz.md §10) — all require a session.
   app.get(
     '/identities',

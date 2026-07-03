@@ -34,16 +34,21 @@ export async function sendOtpEmail(
   code: string,
   purpose: EmailOtpPurpose,
 ): Promise<void> {
-  const action = purpose === 'signup' ? 'confirm your email address' : 'sign in';
+  const action =
+    purpose === 'signup'
+      ? 'confirm your email address'
+      : purpose === 'delete_account'
+        ? 'permanently delete your account'
+        : 'sign in';
+  // Deletion is destructive, so the "didn't request this" line nudges toward securing
+  // the account rather than a neutral "ignore this email".
+  const footer =
+    purpose === 'delete_account'
+      ? 'The code expires in 10 minutes. If you did not request account deletion, ignore this email and consider changing your password.'
+      : 'The code expires in 10 minutes. If you did not request it, you can ignore this email.';
   await sendMail({
     to,
     subject: `Your verification code: ${code}`,
-    text: [
-      `Use this code to ${action}:`,
-      '',
-      `    ${code}`,
-      '',
-      'The code expires in 10 minutes. If you did not request it, you can ignore this email.',
-    ].join('\n'),
+    text: [`Use this code to ${action}:`, '', `    ${code}`, '', footer].join('\n'),
   });
 }

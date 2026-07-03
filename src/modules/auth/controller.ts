@@ -25,6 +25,7 @@ import {
   UpdateMeBodySchema,
   EmailSignupBodySchema,
   EmailVerifyBodySchema,
+  AccountDeleteConfirmBodySchema,
   GoogleCallbackQuerySchema,
   GithubCallbackQuerySchema,
   TelegramStatusQuerySchema,
@@ -326,6 +327,28 @@ export async function unlinkIdentityHandler(
 ): Promise<void> {
   const { provider } = UnlinkIdentityParamsSchema.parse(request.params);
   await authService.unlinkIdentity(request.server.prisma, request.userId, provider);
+  reply.code(204).send();
+}
+
+// ─── Code-confirmed account deletion ────────────────────────────────────────────
+// Both require the `authenticate` preHandler, so request.userId is set.
+
+export async function accountDeleteRequestHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const result = await authService.requestAccountDeletion(request.server.prisma, request.userId);
+  reply.send(result);
+}
+
+export async function accountDeleteConfirmHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const body = AccountDeleteConfirmBodySchema.parse(request.body);
+  await authService.confirmAccountDeletion(request.server.prisma, request.userId, body);
+  // The account's sessions are revoked server-side; clear the browser's cookie too.
+  clearRefreshCookie(reply);
   reply.code(204).send();
 }
 
