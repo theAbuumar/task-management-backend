@@ -104,6 +104,24 @@ export async function sendBotMessage(chatId: number, text: string): Promise<void
   await callBotApi('sendMessage', { chat_id: chatId, text });
 }
 
+/**
+ * Deliver a 6-digit account-deletion code to a Telegram-only account through the bot
+ * (the analogue of {@link sendOtpEmail} for accounts with no email). The chat id for a
+ * private chat equals the user's telegram id, so we message them directly.
+ */
+export async function sendDeletionCode(chatId: number, code: string): Promise<void> {
+  await callBotApi('sendMessage', {
+    chat_id: chatId,
+    text: [
+      'Use this code to permanently delete your Task Management account:',
+      '',
+      `    ${code}`,
+      '',
+      'The code expires in 10 minutes. If you did not request account deletion, ignore this message.',
+    ].join('\n'),
+  });
+}
+
 /** Acknowledge a tapped inline button so Telegram stops the loading spinner. */
 export async function answerCallbackQuery(callbackQueryId: string, text: string): Promise<void> {
   await callBotApi('answerCallbackQuery', { callback_query_id: callbackQueryId, text });

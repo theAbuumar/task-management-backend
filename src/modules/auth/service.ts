@@ -1,4 +1,4 @@
-import type { PrismaClient, User, AuthIdentity, AuthProvider } from '@prisma/client';
+import type { PrismaClient, User, AuthIdentity, AuthProvider, Prisma } from '@prisma/client';
 import { config } from '../../config/index.js';
 import { AppError } from '../../lib/errors.js';
 import { hashSecret, verifySecret } from '../../lib/password.js';
@@ -6,13 +6,14 @@ import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../lib
 import { parseDurationMs } from '../../lib/duration.js';
 import { sendOtpEmail } from '../../lib/email.js';
 import { acceptInviteAfterRegister } from '../invites/service.js';
-import { issueOtp, verifyOtp } from './otp.service.js';
+import { issueOtp, verifyOtp, type OtpTarget } from './otp.service.js';
 import { findOrCreateFromProvider, type ProviderProfile } from './identity.service.js';
 import { initLoginToken, confirmLoginToken, consumeLoginToken } from './telegram-login.service.js';
 import {
   buildTelegramDeepLink,
   sendConfirmPrompt,
   sendBotMessage,
+  sendDeletionCode,
   answerCallbackQuery,
   CONFIRM_CALLBACK_PREFIX,
   type TelegramUpdate,
@@ -149,7 +150,7 @@ export async function emailSignup(
   }
   // else: verified account — do not modify; still send a code to verify into it.
 
-  const code = await issueOtp(prisma, body.email, 'signup');
+  const code = await issueOtp(prisma, { email: body.email }, 'signup');
   await sendOtpEmail(body.email, code, 'signup');
 
   return { status: 'otp_sent', email: body.email };
@@ -163,7 +164,7 @@ export async function emailVerify(
   prisma: PrismaClient,
   body: EmailVerifyBody,
 ): Promise<AuthTokens> {
-  await verifyOtp(prisma, body.email, 'signup', body.code);
+  await verifyOtp(prisma, { email: body.email }, 'signup', body.code);
 
   const user = await prisma.user.findUnique({ where: { email: body.email } });
   if (!user) throw AppError.notFound('No account found for this email');
@@ -180,37 +181,63 @@ export async function emailVerify(
 
 // ─── Code-confirmed account deletion ────────────────────────────────────────────
 
+/** The channel a deletion code was delivered on. */
+export interface DeleteChallenge {
+  status: 'otp_sent';
+  channel: 'email' | 'telegram';
+  /** Present only for the email channel (the address the code was sent to). */
+  email?: string;
+}
+
 /**
- * Step 1 of deletion: email the logged-in user a 6-digit confirmation code (reusing
- * the OTP primitives with the `delete_account` purpose). Only email accounts can be
- * confirmed this way — an account with no email (e.g. Telegram-only) has nowhere to
- * send the code.
+ * Step 1 of deletion: send the logged-in user a 6-digit confirmation code, regardless
+ * of how they registered. The code goes to whatever channel the account can be reached
+ * on: the email address if it has one (as for signup), otherwise the Telegram bot for a
+ * Telegram-linked account. An account with neither is told to link one first — we won't
+ * delete without a confirmable channel.
  */
 export async function requestAccountDeletion(
   prisma: PrismaClient,
   userId: string,
-): Promise<OtpChallenge> {
+): Promise<DeleteChallenge> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw AppError.notFound('User not found');
-  if (!user.email) {
-    throw AppError.badRequest(
-      'This account has no email address, so a deletion code cannot be sent. Contact support to delete it.',
-    );
+
+  // Email accounts (incl. Google/GitHub with an email) get the code by email.
+  if (user.email) {
+    const code = await issueOtp(prisma, { email: user.email }, 'delete_account');
+    await sendOtpEmail(user.email, code, 'delete_account');
+    return { status: 'otp_sent', channel: 'email', email: user.email };
   }
 
-  const code = await issueOtp(prisma, user.email, 'delete_account');
-  await sendOtpEmail(user.email, code, 'delete_account');
+  // No email: deliver the code through the Telegram bot if the account is linked to it.
+  // The code is keyed by user id (there's no address), and the bot chat id equals the
+  // linked telegram id.
+  const telegram = await prisma.authIdentity.findFirst({
+    where: { user_id: userId, provider: 'telegram' },
+  });
+  if (telegram?.provider_user_id) {
+    const code = await issueOtp(prisma, { userId }, 'delete_account');
+    await sendDeletionCode(Number(telegram.provider_user_id), code);
+    return { status: 'otp_sent', channel: 'telegram' };
+  }
 
-  return { status: 'otp_sent', email: user.email };
+  // Neither channel exists (e.g. a GitHub account with a private email and nothing
+  // else linked) — nowhere to send a code to.
+  throw AppError.badRequest(
+    'This account has no email or Telegram to send a deletion code to. Link an email or Telegram sign-in method first, then try again.',
+  );
 }
 
 /**
  * Step 2 of deletion: validate the code, then "delete" the account by anonymizing it.
- * The row is kept on purpose so everything the user touched stays intact and simply
- * renders as a deleted user — workspaces they own, memberships, issue assignments, and
- * authored issues/comments/activity are all left in place. Only the person is erased:
- * identities and refresh tokens are removed (logging them out everywhere) and email /
- * password / display name / avatar are cleared. `is_active=false` blocks any re-login.
+ * The row is kept on purpose so everything the user authored stays intact and simply
+ * renders as a deleted user — issue assignments and authored issues/comments/activity
+ * are left in place. Ownership of any workspace the user solely owns is handed off
+ * first (auto-transfer, or the workspace is removed when no one else is left) so no
+ * workspace is orphaned to a login-less account. Only the person is erased: identities
+ * and refresh tokens are removed (logging them out everywhere) and email / password /
+ * display name / avatar are cleared. `is_active=false` blocks any re-login.
  */
 export async function confirmAccountDeletion(
   prisma: PrismaClient,
@@ -219,20 +246,22 @@ export async function confirmAccountDeletion(
 ): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw AppError.notFound('User not found');
-  if (!user.email) {
-    throw AppError.badRequest(
-      'This account has no email address, so it cannot be confirmed by code.',
-    );
-  }
 
-  await verifyOtp(prisma, user.email, 'delete_account', body.code);
+  // Verify against the same target the code was issued for: email if present,
+  // otherwise the user-keyed code sent over Telegram.
+  const target: OtpTarget = user.email ? { email: user.email } : { userId };
+  await verifyOtp(prisma, target, 'delete_account', body.code);
 
-  await prisma.$transaction([
-    prisma.authIdentity.deleteMany({ where: { user_id: userId } }),
-    prisma.refreshToken.deleteMany({ where: { user_id: userId } }),
-    // Drop any outstanding codes for the (about-to-be-cleared) address.
-    prisma.emailOtp.deleteMany({ where: { email: user.email } }),
-    prisma.user.update({
+  await prisma.$transaction(async (tx) => {
+    await reassignOwnedWorkspaces(tx, userId);
+
+    await tx.authIdentity.deleteMany({ where: { user_id: userId } });
+    await tx.refreshToken.deleteMany({ where: { user_id: userId } });
+    // Drop any outstanding codes for this account, on either channel.
+    await tx.emailOtp.deleteMany({
+      where: { OR: [{ user_id: userId }, ...(user.email ? [{ email: user.email }] : [])] },
+    });
+    await tx.user.update({
       where: { id: userId },
       data: {
         email: null,
@@ -242,8 +271,8 @@ export async function confirmAccountDeletion(
         avatar_url: null,
         is_active: false,
       },
-    }),
-  ]);
+    });
+  });
 }
 
 // ─── OAuth / Telegram sign-in (auth_tz.md §1, §3–§5, §7) ────────────────────────
@@ -557,6 +586,47 @@ export async function updateMe(
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Transfer ownership of every workspace this user solely owns to a successor member
+ * (the highest-privileged remaining member, oldest first); delete the workspace when
+ * no other member is left. Keeps the "exactly one owner" invariant and prevents a
+ * workspace being owned by a deleted, login-less account. Runs inside the deletion
+ * transaction (see {@link confirmAccountDeletion}).
+ */
+async function reassignOwnedWorkspaces(
+  tx: Prisma.TransactionClient,
+  userId: string,
+): Promise<void> {
+  const owned = await tx.workspace.findMany({
+    where: { owner_id: userId },
+    select: { id: true },
+  });
+
+  for (const ws of owned) {
+    // Enum order (owner < admin < member < guest) makes ascending role = most
+    // privileged first; created_at breaks ties toward the longest-standing member.
+    const successor = await tx.workspaceMember.findFirst({
+      where: { workspace_id: ws.id, user_id: { not: userId } },
+      orderBy: [{ role: 'asc' }, { created_at: 'asc' }],
+    });
+
+    if (!successor) {
+      // No one else to own it — remove the workspace and everything under it (cascade).
+      await tx.workspace.delete({ where: { id: ws.id } });
+      continue;
+    }
+
+    await tx.workspace.update({ where: { id: ws.id }, data: { owner_id: successor.user_id } });
+    await tx.workspaceMember.update({
+      where: { workspace_id_user_id: { workspace_id: ws.id, user_id: successor.user_id } },
+      data: { role: 'owner' },
+    });
+    // The departing owner leaves the workspace it handed off (deleteMany never throws
+    // when the membership is already gone).
+    await tx.workspaceMember.deleteMany({ where: { workspace_id: ws.id, user_id: userId } });
+  }
+}
 
 /**
  * Ensure the account has an `email` identity row (auth_tz.md §2). Idempotent:

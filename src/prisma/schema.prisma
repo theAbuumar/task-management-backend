@@ -154,9 +154,15 @@ model AuthIdentity {
 // Email one-time codes for signup/login verification (auth_tz.md §6, §9).
 // Only the hash of the code is stored; `attempts` caps brute force; `consumed_at`
 // makes a code single-use.
+//
+// A code is bound to exactly one target: `email` for the signup/login flows and for
+// deleting an account that has an email; `user_id` for deleting an account that has
+// no email (e.g. Telegram-only), where the code is delivered through the bot instead.
+// Rate-limiting and lookup key off whichever target column is set.
 model EmailOtp {
   id          String          @id @default(uuid())
-  email       String
+  email       String?
+  user_id     String?
   code_hash   String
   purpose     EmailOtpPurpose
   expires_at  DateTime
@@ -165,6 +171,7 @@ model EmailOtp {
   created_at  DateTime        @default(now())
 
   @@index([email])
+  @@index([user_id])
 }
 
 // Telegram deep-link login handshake (auth_tz.md §7). Created `pending` and bound to

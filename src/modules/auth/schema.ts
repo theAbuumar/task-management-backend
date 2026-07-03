@@ -503,22 +503,32 @@ export const unlinkIdentityRouteSchema: FastifySchema = {
 
 // ─── Code-confirmed account deletion ──────────────────────────────────────────
 
+const deleteChallenge = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: ['otp_sent'] },
+    channel: { type: 'string', enum: ['email', 'telegram'] },
+    // Present only for the email channel.
+    email: { type: 'string', nullable: true },
+  },
+} as const;
+
 export const accountDeleteRequestRouteSchema: FastifySchema = {
   tags: ['Auth'],
-  summary: 'Request account deletion — emails the current user a 6-digit confirmation code',
+  summary: 'Request account deletion — sends the current user a 6-digit confirmation code',
   description:
-    'Starts the code-confirmed deletion flow for the logged-in account. Emails a 6-digit OTP (`delete_account` purpose) to the account’s address, then the client confirms via `POST /auth/account/delete/confirm`. Rejected (400) for accounts with no email.',
+    'Starts the code-confirmed deletion flow for the logged-in account, regardless of how it was registered. Sends a 6-digit code (`delete_account` purpose) to the account’s email if it has one, otherwise through the Telegram bot for a Telegram-linked account; the response `channel` says which. The client then confirms via `POST /auth/account/delete/confirm`. Rejected (400) only when the account has neither an email nor Telegram to reach — link one first.',
   security: [{ bearerAuth: [] }],
   response: responses({
-    200: otpChallenge,
+    200: deleteChallenge,
   }),
 };
 
 export const accountDeleteConfirmRouteSchema: FastifySchema = {
   tags: ['Auth'],
-  summary: 'Confirm account deletion with the emailed code — scrubs and deactivates the account',
+  summary: 'Confirm account deletion with the sent code — scrubs and deactivates the account',
   description:
-    'Validates the 6-digit code from `POST /auth/account/delete/request`, then deletes the account by anonymizing it: removes all login methods and refresh tokens (logging the user out everywhere) and clears email / password / display name / avatar. Everything the user touched is retained and attributed to a deleted user — owned workspaces, memberships, issue assignments, and authored issues/comments. Clears the refresh cookie.',
+    'Validates the 6-digit code from `POST /auth/account/delete/request` (email or Telegram, whichever it was sent on), then deletes the account by anonymizing it: removes all login methods and refresh tokens (logging the user out everywhere) and clears email / password / display name / avatar. Ownership of any workspace the user solely owns is auto-transferred to another member first (or the workspace is deleted when no one else remains). Authored issues/comments, activity, and issue assignments are retained and attributed to a deleted user. Clears the refresh cookie.',
   security: [{ bearerAuth: [] }],
   body: {
     type: 'object',

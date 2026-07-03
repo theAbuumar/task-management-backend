@@ -6,9 +6,27 @@
 // lives in service.ts — this module is pure persistence + policy.
 
 import crypto from 'node:crypto';
-import type { PrismaClient, EmailOtpPurpose } from '@prisma/client';
+import type { PrismaClient, EmailOtpPurpose, Prisma } from '@prisma/client';
 import { AppError } from '../../lib/errors.js';
 import { hashSecret, verifySecret } from '../../lib/password.js';
+
+/**
+ * Who a code is bound to. `email` for the signup/login flows and email-account
+ * deletion (the code is emailed); `userId` for deleting an account with no email,
+ * where the code is delivered another way (e.g. the Telegram bot). Lookup and the
+ * send rate-limit key off whichever column is set.
+ */
+export type OtpTarget = { email: string } | { userId: string };
+
+/** The WHERE fragment that selects a target's rows. */
+function targetWhere(target: OtpTarget): Prisma.EmailOtpWhereInput {
+  return 'email' in target ? { email: target.email } : { user_id: target.userId };
+}
+
+/** The columns to persist for a target when creating a code. */
+function targetData(target: OtpTarget): { email: string } | { user_id: string } {
+  return 'email' in target ? { email: target.email } : { user_id: target.userId };
+}
 
 // Locked defaults (AUTH-ROADMAP Resolved Decisions / auth_tz.md §9).
 const CODE_LENGTH = 6;
@@ -25,14 +43,15 @@ function generateCode(): string {
 }
 
 /**
- * Enforce the per-email send limits (auth_tz.md §9): no more than 1 code / 60s and
+ * Enforce the per-target send limits (auth_tz.md §9): no more than 1 code / 60s and
  * 5 codes / hour. Throws {@link AppError.rateLimited} (429) when exceeded.
  */
-async function enforceSendRateLimit(prisma: PrismaClient, email: string): Promise<void> {
+async function enforceSendRateLimit(prisma: PrismaClient, target: OtpTarget): Promise<void> {
   const now = Date.now();
+  const where = targetWhere(target);
 
   const mostRecent = await prisma.emailOtp.findFirst({
-    where: { email },
+    where,
     orderBy: { created_at: 'desc' },
   });
   if (mostRecent && now - mostRecent.created_at.getTime() < RATE_MIN_INTERVAL_MS) {
@@ -40,7 +59,7 @@ async function enforceSendRateLimit(prisma: PrismaClient, email: string): Promis
   }
 
   const recentCount = await prisma.emailOtp.count({
-    where: { email, created_at: { gte: new Date(now - RATE_WINDOW_MS) } },
+    where: { ...where, created_at: { gte: new Date(now - RATE_WINDOW_MS) } },
   });
   if (recentCount >= RATE_MAX_PER_WINDOW) {
     throw AppError.rateLimited('Too many codes requested. Try again later.');
@@ -48,45 +67,45 @@ async function enforceSendRateLimit(prisma: PrismaClient, email: string): Promis
 }
 
 /**
- * Issue a fresh OTP for `email`/`purpose` and return the plaintext code (the caller
- * emails it). Rate-limited; any earlier un-consumed codes for the same
- * email+purpose are invalidated so only the latest one is valid.
+ * Issue a fresh OTP for `target`/`purpose` and return the plaintext code (the caller
+ * delivers it). Rate-limited; any earlier un-consumed codes for the same
+ * target+purpose are invalidated so only the latest one is valid.
  */
 export async function issueOtp(
   prisma: PrismaClient,
-  email: string,
+  target: OtpTarget,
   purpose: EmailOtpPurpose,
 ): Promise<string> {
-  await enforceSendRateLimit(prisma, email);
+  await enforceSendRateLimit(prisma, target);
 
-  // Invalidate previous outstanding codes for this email+purpose.
+  // Invalidate previous outstanding codes for this target+purpose.
   await prisma.emailOtp.updateMany({
-    where: { email, purpose, consumed_at: null },
+    where: { ...targetWhere(target), purpose, consumed_at: null },
     data: { consumed_at: new Date() },
   });
 
   const code = generateCode();
   const code_hash = await hashSecret(code);
   await prisma.emailOtp.create({
-    data: { email, code_hash, purpose, expires_at: new Date(Date.now() + TTL_MS) },
+    data: { ...targetData(target), code_hash, purpose, expires_at: new Date(Date.now() + TTL_MS) },
   });
 
   return code;
 }
 
 /**
- * Verify a submitted code against the latest outstanding OTP for `email`/`purpose`.
+ * Verify a submitted code against the latest outstanding OTP for `target`/`purpose`.
  * Enforces expiry, the {@link MAX_ATTEMPTS} cap, and single use. Throws
  * {@link AppError} on any failure; resolves (consuming the code) on success.
  */
 export async function verifyOtp(
   prisma: PrismaClient,
-  email: string,
+  target: OtpTarget,
   purpose: EmailOtpPurpose,
   code: string,
 ): Promise<void> {
   const otp = await prisma.emailOtp.findFirst({
-    where: { email, purpose, consumed_at: null },
+    where: { ...targetWhere(target), purpose, consumed_at: null },
     orderBy: { created_at: 'desc' },
   });
 
