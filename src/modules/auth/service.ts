@@ -6,6 +6,7 @@ import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../lib
 import { parseDurationMs } from '../../lib/duration.js';
 import { sendOtpEmail } from '../../lib/email.js';
 import { acceptInviteAfterRegister } from '../invites/service.js';
+import { respondToInviteViaTelegram } from '../member-invites/service.js';
 import { issueOtp, verifyOtp, type OtpTarget } from './otp.service.js';
 import { findOrCreateFromProvider, type ProviderProfile } from './identity.service.js';
 import { initLoginToken, confirmLoginToken, consumeLoginToken } from './telegram-login.service.js';
@@ -16,6 +17,8 @@ import {
   sendDeletionCode,
   answerCallbackQuery,
   CONFIRM_CALLBACK_PREFIX,
+  WS_INVITE_ACCEPT_PREFIX,
+  WS_INVITE_DECLINE_PREFIX,
   type TelegramUpdate,
 } from './telegram.service.js';
 import type {
@@ -443,10 +446,26 @@ export async function handleTelegramUpdate(
   prisma: PrismaClient,
   update: TelegramUpdate,
 ): Promise<void> {
-  // Button tap → confirm the login.
+  // Button tap → confirm the login, or respond to a workspace invite.
   if (update.callback_query) {
     const cq = update.callback_query;
     const data = cq.data ?? '';
+
+    // Workspace member-invite Accept/Decline buttons (winv:a:<token> / winv:d:<token>).
+    if (data.startsWith(WS_INVITE_ACCEPT_PREFIX) || data.startsWith(WS_INVITE_DECLINE_PREFIX)) {
+      const accept = data.startsWith(WS_INVITE_ACCEPT_PREFIX);
+      const prefix = accept ? WS_INVITE_ACCEPT_PREFIX : WS_INVITE_DECLINE_PREFIX;
+      const token = data.slice(prefix.length);
+      const message = await respondToInviteViaTelegram(
+        prisma,
+        token,
+        String(cq.from.id),
+        accept ? 'accept' : 'decline',
+      );
+      await answerCallbackQuery(cq.id, message);
+      return;
+    }
+
     if (!data.startsWith(CONFIRM_CALLBACK_PREFIX)) {
       await answerCallbackQuery(cq.id, 'Unknown action.');
       return;

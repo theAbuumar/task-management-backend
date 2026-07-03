@@ -19,6 +19,14 @@ const TELEGRAM_DEEP_LINK_BASE = 'https://t.me';
 /** callback_data prefix on the confirm inline-button; the token follows it. */
 export const CONFIRM_CALLBACK_PREFIX = 'confirm:';
 
+/**
+ * callback_data prefixes on the workspace-invite inline-buttons; the invite token
+ * follows. Kept short so `prefix + uuid` stays within Telegram's 64-byte callback_data
+ * limit (9 + 36 = 45 bytes).
+ */
+export const WS_INVITE_ACCEPT_PREFIX = 'winv:a:';
+export const WS_INVITE_DECLINE_PREFIX = 'winv:d:';
+
 interface TelegramConfig {
   botToken: string;
   botUsername: string;
@@ -31,6 +39,15 @@ function requireTelegramConfig(): TelegramConfig {
     throw AppError.badRequest('Telegram sign-in is not configured');
   }
   return { botToken: TELEGRAM_BOT_TOKEN, botUsername: TELEGRAM_BOT_USERNAME };
+}
+
+/**
+ * Whether the Telegram bot is configured. Lets best-effort senders (e.g. the workspace
+ * member-invite fan-out) skip the Telegram channel silently rather than throwing when
+ * the bot is not set up.
+ */
+export function telegramConfigured(): boolean {
+  return Boolean(config.TELEGRAM_BOT_TOKEN && config.TELEGRAM_BOT_USERNAME);
 }
 
 /**
@@ -102,6 +119,42 @@ export async function sendConfirmPrompt(chatId: number, token: string): Promise<
 /** Send a plain informational message (e.g. an expired/invalid link notice). */
 export async function sendBotMessage(chatId: number, text: string): Promise<void> {
   await callBotApi('sendMessage', { chat_id: chatId, text });
+}
+
+export interface WorkspaceInvitePromptOptions {
+  /** The invite token; rides in the accept/decline callback_data. */
+  token: string;
+  workspaceName: string;
+  inviterName: string;
+  role: string;
+}
+
+/**
+ * Deliver a workspace invite to a Telegram-linked user: a message with Accept/Decline
+ * inline buttons whose `callback_data` carries `winv:a:<token>` / `winv:d:<token>`. The
+ * webhook routes the tap to the member-invite service. `chatId` for a private chat
+ * equals the user's telegram id, so we message them directly.
+ */
+export async function sendWorkspaceInvitePrompt(
+  chatId: number,
+  opts: WorkspaceInvitePromptOptions,
+): Promise<void> {
+  await callBotApi('sendMessage', {
+    chat_id: chatId,
+    text: [
+      `${opts.inviterName} invited you to join the "${opts.workspaceName}" workspace as ${opts.role}.`,
+      '',
+      'Do you want to accept?',
+    ].join('\n'),
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '✅ Accept', callback_data: `${WS_INVITE_ACCEPT_PREFIX}${opts.token}` },
+          { text: '❌ Decline', callback_data: `${WS_INVITE_DECLINE_PREFIX}${opts.token}` },
+        ],
+      ],
+    },
+  });
 }
 
 /**

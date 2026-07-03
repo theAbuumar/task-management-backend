@@ -1,5 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import * as workspaceService from './service.js';
+import * as memberInviteService from '../member-invites/service.js';
+import { InviteExistingUserBodySchema } from '../member-invites/schema.js';
 import {
   CreateWorkspaceBodySchema,
   UpdateWorkspaceBodySchema,
@@ -121,4 +123,20 @@ export async function inviteMemberHandler(
     body,
   );
   reply.code(201).send(invite);
+}
+
+// Invite an already-registered user (delivered to email + Telegram, accepted from any
+// channel). Distinct from inviteMemberHandler, which emails a token link to strangers.
+export async function inviteExistingUserHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const body = InviteExistingUserBodySchema.parse(request.body);
+  const result = await memberInviteService.inviteExistingUser(
+    request.server.prisma,
+    request.workspace.id,
+    request.userId,
+    body,
+  );
+  reply.code(201).send(result);
 }

@@ -28,6 +28,34 @@ export async function sendInviteEmail(payload: InviteEmailPayload): Promise<void
   });
 }
 
+export interface MemberInviteEmailPayload {
+  to: string;
+  workspaceName: string;
+  inviterName: string;
+  /** Link to the recipient's in-app invitations inbox where they accept/decline. */
+  inboxUrl: string;
+  expiresAt: Date;
+}
+
+/**
+ * Notify an ALREADY-REGISTERED user that they've been invited to a workspace. Unlike
+ * {@link sendInviteEmail} (which links strangers to a token page to register), the
+ * recipient already has an account, so the link points at their signed-in invitations
+ * inbox where they accept or decline.
+ */
+export async function sendMemberInviteEmail(payload: MemberInviteEmailPayload): Promise<void> {
+  await sendMail({
+    to: payload.to,
+    subject: `${payload.inviterName} invited you to join ${payload.workspaceName}`,
+    text: [
+      `${payload.inviterName} invited you to join the "${payload.workspaceName}" workspace.`,
+      '',
+      `Review and accept the invite here: ${payload.inboxUrl}`,
+      `This invite expires on ${payload.expiresAt.toISOString()}.`,
+    ].join('\n'),
+  });
+}
+
 /** Send a one-time verification code (auth_tz.md §6). `purpose` tailors the copy. */
 export async function sendOtpEmail(
   to: string,

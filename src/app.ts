@@ -35,6 +35,7 @@ import { activityRoutes } from './modules/activity/routes.js';
 import { attachmentRoutes, attachmentDeleteRoutes } from './modules/attachments/routes.js';
 import { notificationRoutes } from './modules/notifications/routes.js';
 import { inviteRoutes } from './modules/invites/routes.js';
+import { memberInviteRoutes } from './modules/member-invites/routes.js';
 
 export interface BuildAppOptions {
   /** Pino logger options, or `false`/`true` to disable/enable the default logger. */
@@ -157,6 +158,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     prefix: '/api/v1/workspaces/:workspaceSlug/notifications',
   });
   await app.register(inviteRoutes, { prefix: '/api/v1/invites' });
+  // Personal invitations inbox for invites that target existing users.
+  await app.register(memberInviteRoutes, { prefix: '/api/v1/invitations' });
 
   return app;
 }

@@ -13,6 +13,7 @@ import {
   removeMemberSchema,
   inviteMemberSchema,
 } from './schema.js';
+import { inviteExistingUserSchema } from '../member-invites/schema.js';
 import {
   listWorkspacesHandler,
   createWorkspaceHandler,
@@ -24,6 +25,7 @@ import {
   changeMemberRoleHandler,
   removeMemberHandler,
   inviteMemberHandler,
+  inviteExistingUserHandler,
 } from './controller.js';
 
 export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
@@ -101,5 +103,14 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
       preHandler: [authenticate, requireWorkspaceMember('admin')],
     },
     inviteMemberHandler,
+  );
+  // Invite an already-registered user (in-app inbox + email + Telegram fan-out).
+  app.post(
+    '/:workspaceSlug/members/invite-user',
+    {
+      schema: inviteExistingUserSchema,
+      preHandler: [authenticate, requireWorkspaceMember('admin')],
+    },
+    inviteExistingUserHandler,
   );
 }
