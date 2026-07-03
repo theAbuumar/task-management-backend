@@ -4,7 +4,9 @@
 // user isn't authenticated yet, we mint a random session id at `telegram/init`, store
 // it in this short-lived httpOnly cookie, and require the same value back when the
 // site polls `telegram/status` — so only the initiating browser can consume the login.
-// Attributes mirror the OAuth state cookie (secure per env, `sameSite: lax`).
+// SameSite follows SESSION_COOKIE_SAMESITE (like the refresh cookie): a cross-origin
+// SPA polls via fetch, so that deployment must set it to `none` (Secure) or the
+// cookie won't be sent back and the session-binding check fails.
 
 import type { FastifyReply } from 'fastify';
 import type { CookieSerializeOptions } from '@fastify/cookie';
@@ -17,7 +19,11 @@ function tgSessionCookieOptions(): CookieSerializeOptions {
   return {
     httpOnly: true,
     secure: config.SESSION_COOKIE_SECURE ?? isProd,
-    sameSite: 'lax',
+    // The site polls `telegram/status` via fetch/XHR; when the SPA is on a different
+    // origin than the API that is a cross-site request, so the cookie must be
+    // `SameSite=None` (with Secure) to be sent back. Mirror the refresh cookie's
+    // configured policy — set SESSION_COOKIE_SAMESITE=none for a cross-origin SPA.
+    sameSite: config.SESSION_COOKIE_SAMESITE,
     path: '/',
     ...(config.SESSION_COOKIE_DOMAIN ? { domain: config.SESSION_COOKIE_DOMAIN } : {}),
   };

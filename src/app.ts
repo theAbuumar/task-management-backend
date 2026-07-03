@@ -11,6 +11,7 @@
 
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
+import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import type { LoggerOptions } from 'pino';
 import { config, isDev } from './config/index.js';
@@ -77,9 +78,17 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // --- Plugins ---------------------------------------------------------------
   // Order matters: the error handler is installed first so any later failure is
   // rendered as the standard envelope; swagger registers before routes so it can
-  // capture their schemas; prisma decorates `app.prisma`. Security plugins
-  // (helmet, cors, rate-limit) are added in the Phase 4 hardening pass.
+  // capture their schemas; prisma decorates `app.prisma`. Remaining security
+  // plugins (helmet) are added in the Phase 4 hardening pass.
   await app.register(errorHandlerPlugin);
+  // CORS with credentials so a browser SPA on a different origin can call the API
+  // and send/receive the httpOnly auth cookies (refresh token, tg_session). Allowed
+  // origins come from CORS_ORIGIN (comma-separated). With credentials a literal `*`
+  // is illegal, so `*` falls back to reflecting the request Origin.
+  await app.register(cors, {
+    origin: config.CORS_ORIGIN === '*' ? true : config.CORS_ORIGIN.split(',').map((o) => o.trim()),
+    credentials: true,
+  });
   await app.register(swaggerPlugin);
   // Parse/serialize cookies so the auth layer can deliver the refresh token as an
   // httpOnly cookie and read it back on refresh/logout (auth_tz.md §8). No signing
