@@ -157,6 +157,38 @@ export async function sendWorkspaceInvitePrompt(
   });
 }
 
+export interface IssueNotificationOptions {
+  /** Human-readable issue key, e.g. "MOB-123". */
+  issueKey: string;
+  issueTitle: string;
+  projectName: string;
+  /** Who created/assigned the task — shown so the recipient knows the source. */
+  actorName: string;
+  /**
+   * true when the recipient is a named assignee (created-with-assignee, or added later);
+   * false for the "task with no assignee" broadcast to every project member.
+   */
+  assigned: boolean;
+}
+
+/**
+ * Notify a Telegram-linked user about a task: either that they were assigned one
+ * (`assigned`), or that a new unassigned task appeared in a project they belong to.
+ * `chatId` for a private chat equals the user's telegram id, so we message them directly.
+ */
+export async function sendIssueNotification(
+  chatId: number,
+  opts: IssueNotificationOptions,
+): Promise<void> {
+  const headline = opts.assigned
+    ? `📋 ${opts.actorName} assigned you a task`
+    : `🆕 ${opts.actorName} created a task in ${opts.projectName}`;
+  await callBotApi('sendMessage', {
+    chat_id: chatId,
+    text: [headline, '', `${opts.issueKey}  ${opts.issueTitle}`].join('\n'),
+  });
+}
+
 /**
  * Deliver a 6-digit account-deletion code to a Telegram-only account through the bot
  * (the analogue of {@link sendOtpEmail} for accounts with no email). The chat id for a

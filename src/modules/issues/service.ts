@@ -2,6 +2,8 @@ import type { PrismaClient, Issue, Prisma } from '@prisma/client';
 import { AppError } from '../../lib/errors.js';
 import { recordActivity, recordActivities, ACTIVITY_ACTIONS } from '../../lib/activity.js';
 import { notify } from '../../lib/notifications.js';
+import { sendIssueNotification, telegramConfigured } from '../auth/telegram.service.js';
+import { sendIssueNotificationEmail } from '../../lib/email.js';
 import type { CreateIssueBody, UpdateIssueBody, IssueFilterQuery } from './schema.js';
 
 /** Coerce an issue field value to its stored string form for the activity trail. */
@@ -232,7 +234,7 @@ export async function createIssue(
       throw AppError.badRequest('Sub-issues cannot have sub-issues (single level only)');
   }
 
-  return prisma.$transaction(async (tx) => {
+  const issue = await prisma.$transaction(async (tx) => {
     const sequenceId = await nextSequenceId(tx, projectId);
 
     const issue = await tx.issue.create({
@@ -278,6 +280,30 @@ export async function createIssue(
 
     return issue;
   });
+
+  // Best-effort out-of-band notifications, outside the transaction (network I/O). A task
+  // with named assignees notifies them; a task with none notifies every project member
+  // (the "task for everyone" case). Each recipient gets Telegram if linked, else email.
+  // The mutation has already committed, so any failure here is swallowed — it must never
+  // turn a created issue into an error response.
+  try {
+    const { recipientIds, assigned } = await issueCreatedRecipients(
+      prisma,
+      projectId,
+      body.assignee_ids ?? [],
+    );
+    await notifyIssueRecipients(prisma, {
+      projectId,
+      actorId: creatorId,
+      recipientIds,
+      issue,
+      assigned,
+    });
+  } catch {
+    // Notification delivery is best-effort; the issue was created regardless.
+  }
+
+  return issue;
 }
 
 export async function getIssue(
@@ -405,7 +431,7 @@ export async function addAssignee(
   userId: string,
 ): Promise<IssueWithRelations> {
   await resolveProject(prisma, workspaceId, projectId);
-  await resolveIssue(prisma, projectId, issueId);
+  const issue = await resolveIssue(prisma, projectId, issueId);
 
   const existing = await prisma.issueAssignee.findUnique({
     where: { issue_id_user_id: { issue_id: issueId, user_id: userId } },
@@ -430,6 +456,22 @@ export async function addAssignee(
       issue_id: issueId,
     });
   });
+
+  // Best-effort notification to the newly assigned user (outside the transaction):
+  // Telegram if linked, else email. The assignment already committed, so a delivery
+  // failure is swallowed.
+  try {
+    await notifyIssueRecipients(prisma, {
+      projectId,
+      actorId,
+      recipientIds: [userId],
+      issue,
+      assigned: true,
+    });
+  } catch {
+    // Notification delivery is best-effort; the assignment succeeded regardless.
+  }
+
   return resolveIssue(prisma, projectId, issueId);
 }
 
@@ -530,4 +572,96 @@ export async function detachLabel(
     });
   });
   return resolveIssue(prisma, projectId, issueId);
+}
+
+// ─── Out-of-band notifications (best-effort) ─────────────────────────────────
+
+/**
+ * Recipients for a newly created issue's notifications: the named assignees when the
+ * issue has any, otherwise every member of its project — the "task for everyone" case.
+ * Returns whether the recipients are assignees so the message copy can differ.
+ */
+async function issueCreatedRecipients(
+  prisma: PrismaClient,
+  projectId: string,
+  assigneeIds: string[],
+): Promise<{ recipientIds: string[]; assigned: boolean }> {
+  if (assigneeIds.length > 0) return { recipientIds: assigneeIds, assigned: true };
+  const members = await prisma.projectMember.findMany({
+    where: { project_id: projectId },
+    select: { user_id: true },
+  });
+  return { recipientIds: members.map((m) => m.user_id), assigned: false };
+}
+
+/**
+ * Best-effort out-of-band fan-out for a task event, one channel per recipient: a linked
+ * Telegram account is messaged through the bot; everyone else falls back to email (when
+ * they have an address). Must be called AFTER the mutation's transaction commits — never
+ * inside it — because it performs network I/O. The actor is never notified about their own
+ * action, recipients are de-duplicated, and every individual send is isolated (allSettled),
+ * so a delivery problem can never fail the request or roll back the mutation. This is
+ * additive to the in-app `Notification` rows written inside the transaction.
+ */
+async function notifyIssueRecipients(
+  prisma: PrismaClient,
+  params: {
+    projectId: string;
+    actorId: string;
+    recipientIds: string[];
+    issue: Pick<Issue, 'title' | 'sequence_id'>;
+    assigned: boolean;
+  },
+): Promise<void> {
+  const recipients = [...new Set(params.recipientIds)].filter((id) => id !== params.actorId);
+  if (recipients.length === 0) return;
+
+  const [project, actor, telegramIdentities] = await Promise.all([
+    prisma.project.findUnique({
+      where: { id: params.projectId },
+      select: { name: true, identifier: true },
+    }),
+    prisma.user.findUnique({ where: { id: params.actorId }, select: { display_name: true } }),
+    // Only resolve Telegram links when the bot is actually configured.
+    telegramConfigured()
+      ? prisma.authIdentity.findMany({
+          where: {
+            provider: 'telegram',
+            user_id: { in: recipients },
+            provider_user_id: { not: null },
+          },
+          select: { user_id: true, provider_user_id: true },
+        })
+      : Promise.resolve([] as { user_id: string; provider_user_id: string | null }[]),
+  ]);
+  if (!project || !actor) return;
+
+  const opts = {
+    issueKey: `${project.identifier}-${params.issue.sequence_id}`,
+    issueTitle: params.issue.title,
+    projectName: project.name,
+    actorName: actor.display_name,
+    assigned: params.assigned,
+  };
+
+  // Telegram for linked recipients.
+  const telegramUserIds = new Set(telegramIdentities.map((i) => i.user_id));
+  const sends: Promise<unknown>[] = telegramIdentities.map((i) =>
+    sendIssueNotification(Number(i.provider_user_id), opts),
+  );
+
+  // Email fallback for recipients WITHOUT a linked Telegram, when they have an address.
+  const emailFallbackIds = recipients.filter((id) => !telegramUserIds.has(id));
+  if (emailFallbackIds.length > 0) {
+    const emailTargets = await prisma.user.findMany({
+      where: { id: { in: emailFallbackIds }, email: { not: null } },
+      select: { email: true },
+    });
+    for (const u of emailTargets) {
+      sends.push(sendIssueNotificationEmail({ to: u.email!, ...opts }));
+    }
+  }
+
+  // allSettled so one failing channel/recipient can't stop the others (it never rejects).
+  await Promise.allSettled(sends);
 }

@@ -56,6 +56,38 @@ export async function sendMemberInviteEmail(payload: MemberInviteEmailPayload): 
   });
 }
 
+export interface IssueNotificationEmailPayload {
+  to: string;
+  /** Human-readable issue key, e.g. "MOB-123". */
+  issueKey: string;
+  issueTitle: string;
+  projectName: string;
+  actorName: string;
+  /** true when assigned to the recipient; false for the "new task for everyone" broadcast. */
+  assigned: boolean;
+}
+
+/**
+ * Notify a user about a task by email. This is the fallback channel used for recipients
+ * who have NO linked Telegram (Telegram-linked users are messaged through the bot
+ * instead); the issues service routes each recipient to exactly one of the two.
+ */
+export async function sendIssueNotificationEmail(
+  payload: IssueNotificationEmailPayload,
+): Promise<void> {
+  const subject = payload.assigned
+    ? `${payload.actorName} assigned you ${payload.issueKey}: ${payload.issueTitle}`
+    : `New task in ${payload.projectName} — ${payload.issueKey}: ${payload.issueTitle}`;
+  const lead = payload.assigned
+    ? `${payload.actorName} assigned you a task.`
+    : `${payload.actorName} created a task in "${payload.projectName}".`;
+  await sendMail({
+    to: payload.to,
+    subject,
+    text: [lead, '', `${payload.issueKey}  ${payload.issueTitle}`].join('\n'),
+  });
+}
+
 /** Send a one-time verification code (auth_tz.md §6). `purpose` tailors the copy. */
 export async function sendOtpEmail(
   to: string,
