@@ -19,6 +19,13 @@ async function swaggerPlugin(app: FastifyInstance): Promise<void> {
         version: '0.1.0',
       },
       servers: [{ url: '/api/v1', description: 'API v1 base path' }],
+      tags: [
+        {
+          name: 'Invitations',
+          description:
+            'Personal inbox for workspace invitations that target already-registered users. Not workspace-scoped: the recipient is not yet a member. Admins create these via `POST /workspaces/{slug}/members/invite-user` (tagged Workspaces); delivery fans out to email and Telegram.',
+        },
+      ],
       components: {
         securitySchemes: {
           bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
