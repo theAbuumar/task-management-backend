@@ -665,6 +665,13 @@ export async function logout(prisma: PrismaClient, rawToken: string): Promise<vo
   });
 }
 
+/** Demo stand quick login (DEMO_MODE only; the route restricts it to demo accounts). */
+export async function loginDemoUser(prisma: PrismaClient, email: string): Promise<AuthTokens> {
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user || !user.is_active) throw AppError.notFound('Demo account not found');
+  return issueTokenPair(prisma, user);
+}
+
 export async function getMe(prisma: PrismaClient, userId: string): Promise<SafeUser> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw AppError.notFound('User not found');

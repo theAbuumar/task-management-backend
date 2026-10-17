@@ -92,7 +92,27 @@ function logStub(message: MailMessage): void {
  * blocked); falls back to SMTP when configured; otherwise, in non-prod, logs a
  * stub to the console. Production with nothing configured throws.
  */
+/**
+ * Addresses that can never receive mail (demo accounts on `.local`, test fixtures)
+ * are logged instead of sent, so seeded demo data or tests never bounce through the
+ * real provider.
+ */
+function isUndeliverable(to: string): boolean {
+  const domain = to.split('@')[1]?.toLowerCase() ?? '';
+  return (
+    domain.endsWith('.local') ||
+    domain.endsWith('.test') ||
+    domain.endsWith('.invalid') ||
+    domain === 'example.com' ||
+    domain.endsWith('.example.com')
+  );
+}
+
 export async function sendMail(message: MailMessage): Promise<void> {
+  if (isUndeliverable(message.to)) {
+    logStub(message);
+    return;
+  }
   const resendKey = resolveResendKey();
   if (resendKey) {
     await sendViaResend(resendKey, message);

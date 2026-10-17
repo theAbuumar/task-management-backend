@@ -23,6 +23,11 @@ export const envSchema = z
 
     // --- Logging ---
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
+    /** Demo stand: quick login as seeded `@demo.local` accounts. Never enable in production data. */
+    DEMO_MODE: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
     /** Run background jobs (deadline reminders) in this process. Off under test by default. */
     JOBS_ENABLED: z
       .enum(['true', 'false'])

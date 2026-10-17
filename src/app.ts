@@ -24,6 +24,7 @@ import authPlugin from './plugins/auth-hook.js';
 import workspacePlugin from './plugins/workspace-hook.js';
 import schedulerPlugin from './plugins/scheduler.js';
 import { authRoutes } from './modules/auth/routes.js';
+import { demoRoutes } from './modules/auth/demo-routes.js';
 import { workspaceRoutes } from './modules/workspaces/routes.js';
 import { projectRoutes } from './modules/projects/routes.js';
 import { stateRoutes } from './modules/states/routes.js';
@@ -152,6 +153,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   // Feature modules under /api/v1
   await app.register(authRoutes, { prefix: '/api/v1/auth' });
+  await app.register(demoRoutes, { prefix: '/api/v1/auth' });
   await app.register(workspaceRoutes, { prefix: '/api/v1/workspaces' });
   await app.register(projectRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/projects' });
   await app.register(workspaceIssueRoutes, {
