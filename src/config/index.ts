@@ -4,10 +4,13 @@
 // process start. Invalid/missing env fails fast here (before the server binds),
 // with a readable list of every offending variable.
 
+import { existsSync } from 'node:fs';
 import { parseEnv, type Env } from './env.js';
 
 /**
- * Best-effort load of a local `.env` into `process.env` for development.
+ * Best-effort load of a local env file into `process.env` for development.
+ * `.env.local` (local DB, created by `dev/setup-env.sh`) wins and is loaded
+ * ALONE, so a local run can never pick up production settings from `.env`.
  * In containers/CI the environment is injected directly, so a missing file is
  * not an error. Uses Node's built-in loader (no extra dependency); guarded for
  * older runtimes where it may be unavailable.
@@ -16,10 +19,11 @@ function loadDotEnv(): void {
   if (process.env.NODE_ENV === 'production') return;
   if (process.env.NODE_ENV === 'test') return; // tests set their own vars via setupFiles
   if (typeof process.loadEnvFile !== 'function') return;
+  const file = existsSync('.env.local') ? '.env.local' : '.env';
   try {
-    process.loadEnvFile();
+    process.loadEnvFile(file);
   } catch {
-    // No .env file present — rely on the real environment.
+    // No env file present — rely on the real environment.
   }
 }
 
