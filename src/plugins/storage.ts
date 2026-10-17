@@ -63,6 +63,16 @@ async function storagePlugin(app: FastifyInstance): Promise<void> {
         throw AppError.badRequest('Invalid storage key');
       }
       if (!stream) throw AppError.notFound('Stored object not found');
+      const name = (request.query as Record<string, string | undefined>).name;
+      if (name) {
+        // Same shape as the S3 driver's ResponseContentDisposition; RFC 5987 keeps
+        // Cyrillic names intact. Path separators and quotes are already stripped.
+        const safe = name.replace(/["\\/\r\n]/g, '_').slice(0, 200);
+        reply.header(
+          'content-disposition',
+          `attachment; filename="${safe.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(safe)}`,
+        );
+      }
       return reply.header('content-type', 'application/octet-stream').send(stream);
     });
   });

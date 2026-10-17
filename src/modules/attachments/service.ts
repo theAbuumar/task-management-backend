@@ -5,13 +5,20 @@ import { buildStorageKey, type PresignedUpload, type StorageDriver } from '../..
 import { config } from '../../config/index.js';
 import type { CreateAttachmentBody } from './schema.js';
 
-type AttachmentWithUploader = Prisma.AttachmentGetPayload<{
-  include: { uploaded_by: { select: { id: true; display_name: true; avatar_url: true } } };
-}>;
-
 const INCLUDE_UPLOADER = {
-  uploaded_by: { select: { id: true, display_name: true, avatar_url: true } },
-} as const;
+  uploaded_by: {
+    select: {
+      id: true,
+      display_name: true,
+      last_name: true,
+      first_name: true,
+      middle_name: true,
+      avatar_url: true,
+    },
+  },
+} satisfies Prisma.AttachmentInclude;
+
+type AttachmentWithUploader = Prisma.AttachmentGetPayload<{ include: typeof INCLUDE_UPLOADER }>;
 
 async function resolveIssue(
   prisma: PrismaClient,

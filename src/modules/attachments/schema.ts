@@ -20,6 +20,9 @@ const uploaderShape = {
   properties: {
     id: { type: 'string' },
     display_name: { type: 'string' },
+    last_name: { type: 'string', nullable: true },
+    first_name: { type: 'string', nullable: true },
+    middle_name: { type: 'string', nullable: true },
     avatar_url: { type: 'string', nullable: true },
   },
 } as const;
@@ -35,6 +38,8 @@ const attachmentShape = {
     file_size: { type: 'integer' },
     mime_type: { type: 'string' },
     storage_key: { type: 'string' },
+    // Set when the file was handed in with a report for review (Ф5).
+    review_id: { type: 'string', nullable: true },
     created_at: { type: 'string', format: 'date-time' },
     uploaded_by: uploaderShape,
     download_url: { type: 'string' },

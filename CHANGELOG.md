@@ -30,6 +30,19 @@
 
 ---
 
+## 2026-10-17 — 4.F5 (бэк): вложения — `review_id` и ФИО загрузившего в ответе, имя файла при скачивании из локального хранилища
+**Фаза:** Ф4 · **Тип:** доработка · **Ветка:** `claude/affectionate-wright-igm2y5` (от `develop`)
+**Что изменено:**
+- В ответе вложений появилось поле `review_id` (файл сдан с отчётом на проверку, Ф5). Раньше оно было в БД, но срезалось схемой ответа. У `uploaded_by` добавлены поля ФИО.
+- Локальное хранилище (dev и локальный стенд) отдаёт файл с `Content-Disposition: attachment; filename*=UTF-8''…`, как S3. Скачанный файл называется «Отчёт кафедры.pdf», а не «<uuid>__…».
+**Файлы:** `src/modules/attachments/{schema,service}.ts`, `src/lib/storage.ts`, `src/plugins/storage.ts`, `tests/attachments.test.ts`.
+**API:** `GET .../issues/:issueId/attachments`, `POST .../attachments` — новые поля `review_id`, `uploaded_by.{last_name,first_name,middle_name}`.
+**БД:** —
+**Конфигурация:** —
+**Тесты:** `tests/attachments.test.ts` +1 (кириллическое имя при скачивании, `review_id`, ФИО), в round-trip проверяется имя файла. Весь набор: 172 теста зелёные.
+**Как проверить:** `bash dev/test-backend.sh tests/attachments.test.ts`
+**Совместимость:** фронт — раздел «Вложения» (запись фронта «4.F5»).
+
 ## 2026-10-17 — 8.B6 Уведомления: задача в строке, фильтр по типу, «непрочитанное»; исправлены фильтры списка задач
 **Фаза:** Ф8 (+ исправление Ф1) · **Тип:** новая функция, исправление · **Ветка:** `claude/affectionate-wright-igm2y5` (от `develop`)
 **Что изменено:**

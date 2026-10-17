@@ -142,6 +142,32 @@ describe('issue attachments', () => {
       });
     expect(download.status).toBe(200);
     expect(download.body).toBe('hello world');
+    expect(download.headers['content-disposition']).toContain('filename="hello.txt"');
+  });
+
+  it('downloads under the original (Cyrillic) file name and lists review_id + uploader ФИО', async () => {
+    const name = 'Отчёт кафедры.pdf';
+    const reg = await request(app.server)
+      .post(`${base()}/issues/${issueId}/attachments`)
+      .set(...auth(ownerToken))
+      .send({ file_name: name, file_size: 4, mime_type: 'application/pdf' });
+    await request(app.server)
+      .put(toPath(reg.body.upload.url))
+      .set('content-type', 'application/pdf')
+      .send(Buffer.from('%PDF'));
+
+    const list = await request(app.server)
+      .get(`${base()}/issues/${issueId}/attachments`)
+      .set(...auth(ownerToken));
+    const entry = list.body.find((a: { id: string }) => a.id === reg.body.attachment.id);
+    expect(entry.review_id).toBeNull();
+    expect(entry.uploaded_by).toHaveProperty('last_name');
+
+    const download = await request(app.server).get(toPath(entry.download_url));
+    expect(download.status).toBe(200);
+    expect(download.headers['content-disposition']).toContain(
+      `filename*=UTF-8''${encodeURIComponent(name)}`,
+    );
   });
 
   it('rejects a file larger than the configured maximum', async () => {
