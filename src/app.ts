@@ -44,6 +44,7 @@ import { mediaRoutes } from './modules/media/routes.js';
 import { workspaceIssueRoutes } from './modules/issues/workspace-routes.js';
 import { controlRoutes } from './modules/control/routes.js';
 import { controlAdminRoutes } from './modules/control/admin-routes.js';
+import { meRoutes } from './modules/control/summary-routes.js';
 
 export interface BuildAppOptions {
   /** Pino logger options, or `false`/`true` to disable/enable the default logger. */
@@ -189,6 +190,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(controlAdminRoutes, {
     prefix: '/api/v1/workspaces/:workspaceSlug/control',
   });
+  // The signed-in member's own counters (sidebar, «Мои задачи»).
+  await app.register(meRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/me' });
   await app.register(activityRoutes, {
     prefix: '/api/v1/workspaces/:workspaceSlug/projects/:projectId/issues/:issueId/activity',
   });
