@@ -51,7 +51,15 @@ export async function issueRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/:issueId', { schema: getIssueSchema, preHandler: member }, getIssueHandler);
   app.patch('/:issueId', { schema: updateIssueSchema, preHandler: member }, updateIssueHandler);
-  app.delete('/:issueId', { schema: deleteIssueSchema, preHandler: member }, deleteIssueHandler);
+  app.delete(
+    '/:issueId',
+    {
+      schema: deleteIssueSchema,
+      preHandler: member,
+      config: { audit: { action: 'issue.deleted', target: 'issue', param: 'issueId' } },
+    },
+    deleteIssueHandler,
+  );
 
   // Assignees
   app.post(

@@ -21,15 +21,27 @@ export async function departmentRoutes(app: FastifyInstance): Promise<void> {
   const admin = [authenticate, requireWorkspaceMember('admin')];
 
   app.get('/', { schema: listDepartmentsSchema, preHandler: member }, listDepartmentsHandler);
-  app.post('/', { schema: createDepartmentSchema, preHandler: admin }, createDepartmentHandler);
+  app.post(
+    '/',
+    { schema: createDepartmentSchema, preHandler: admin, config: { audit: { action: 'department.created', target: 'department' } } },
+    createDepartmentHandler,
+  );
   app.patch(
     '/:departmentId',
-    { schema: updateDepartmentSchema, preHandler: admin },
+    {
+      schema: updateDepartmentSchema,
+      preHandler: admin,
+      config: { audit: { action: 'department.updated', target: 'department', param: 'departmentId' } },
+    },
     updateDepartmentHandler,
   );
   app.delete(
     '/:departmentId',
-    { schema: deleteDepartmentSchema, preHandler: admin },
+    {
+      schema: deleteDepartmentSchema,
+      preHandler: admin,
+      config: { audit: { action: 'department.deleted', target: 'department', param: 'departmentId' } },
+    },
     deleteDepartmentHandler,
   );
 }

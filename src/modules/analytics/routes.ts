@@ -5,7 +5,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { authenticate } from '../../plugins/auth-hook.js';
 import { requireWorkspaceMember } from '../../plugins/workspace-hook.js';
-import { recordActivity, ACTIVITY_ACTIONS } from '../../lib/activity.js';
+import { writeAudit } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { analyticsData } from './data.js';
 import * as analytics from './service.js';
@@ -42,19 +42,25 @@ function sendFile(reply: FastifyReply, body: Buffer, type: string, name: string)
     .send(body);
 }
 
+/** Every download goes to the audit log (12.B1): which report, with which filters. */
 async function logExport(
   app: FastifyInstance,
   request: FastifyRequest,
   report: string,
   query: AnalyticsQuery,
 ) {
-  await recordActivity(app.prisma, {
-    workspace_id: request.workspace.id,
-    actor_id: request.userId,
-    action: ACTIVITY_ACTIONS.REPORT_EXPORTED,
-    field: report,
-    new_value: JSON.stringify(query),
-  });
+  await writeAudit(
+    app.prisma,
+    {
+      workspace_id: request.workspace.id,
+      actor_id: request.userId,
+      action: 'report.exported',
+      target_type: 'report',
+      target_id: report,
+      meta: { report, ...query },
+    },
+    request,
+  );
 }
 
 export async function analyticsRoutes(app: FastifyInstance): Promise<void> {

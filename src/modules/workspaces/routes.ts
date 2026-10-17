@@ -53,6 +53,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     {
       schema: updateWorkspaceSchema,
       preHandler: [authenticate, requireWorkspaceMember('admin')],
+      config: { audit: { action: 'workspace.updated', target: 'workspace' } },
     },
     updateWorkspaceHandler,
   );
@@ -61,6 +62,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     {
       schema: deleteWorkspaceSchema,
       preHandler: [authenticate, requireWorkspaceMember('owner')],
+      config: { audit: { action: 'workspace.deleted', target: 'workspace' } },
     },
     deleteWorkspaceHandler,
   );
@@ -71,6 +73,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     {
       schema: leaveWorkspaceSchema,
       preHandler: [authenticate, requireWorkspaceMember()],
+      config: { audit: { action: 'member.left', target: 'user', self: true } },
     },
     leaveWorkspaceHandler,
   );
@@ -89,6 +92,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     {
       schema: addMemberSchema,
       preHandler: [authenticate, requireWorkspaceMember('admin')],
+      config: { audit: { action: 'member.added', target: 'user', bodyField: 'user_id' } },
     },
     addMemberHandler,
   );
@@ -97,6 +101,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     {
       schema: changeMemberRoleSchema,
       preHandler: [authenticate, requireWorkspaceMember('admin')],
+      config: { audit: { action: 'member.updated', target: 'user', param: 'userId' } },
     },
     changeMemberRoleHandler,
   );
@@ -105,6 +110,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     {
       schema: removeMemberSchema,
       preHandler: [authenticate, requireWorkspaceMember('admin')],
+      config: { audit: { action: 'member.removed', target: 'user', param: 'userId' } },
     },
     removeMemberHandler,
   );
@@ -113,6 +119,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     {
       schema: inviteMemberSchema,
       preHandler: [authenticate, requireWorkspaceMember('admin')],
+      config: { audit: { action: 'invite.sent', target: 'invite' } },
     },
     inviteMemberHandler,
   );
@@ -122,6 +129,7 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
     {
       schema: inviteExistingUserSchema,
       preHandler: [authenticate, requireWorkspaceMember('admin')],
+      config: { audit: { action: 'invite.sent', target: 'user', bodyField: 'user_id' } },
     },
     inviteExistingUserHandler,
   );

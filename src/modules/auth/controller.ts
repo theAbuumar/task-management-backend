@@ -1,4 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
+import { auditLogin, writeAudit } from '../../lib/audit.js';
+import { verifyRefreshToken } from '../../lib/jwt.js';
 import * as authService from './service.js';
 import { buildGoogleAuthUrl, exchangeGoogleCode } from './google.service.js';
 import { buildGithubAuthUrl, exchangeGithubCode } from './github.service.js';
@@ -56,6 +58,7 @@ function frontendErrorUrl(code: string): string {
 export async function registerHandler(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const body = RegisterBodySchema.parse(request.body);
   const result = await authService.register(request.server.prisma, body);
+  await auditLogin(request, result.user.id, 'password', { signup: true });
   setRefreshCookie(reply, result.refresh_token);
   reply.code(201).send(result);
 }
@@ -63,6 +66,7 @@ export async function registerHandler(request: FastifyRequest, reply: FastifyRep
 export async function loginHandler(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const body = LoginBodySchema.parse(request.body);
   const result = await authService.login(request.server.prisma, body);
+  await auditLogin(request, result.user.id, 'password');
   setRefreshCookie(reply, result.refresh_token);
   reply.send(result);
 }
@@ -82,6 +86,7 @@ export async function emailVerifyHandler(
 ): Promise<void> {
   const body = EmailVerifyBodySchema.parse(request.body);
   const result = await authService.emailVerify(request.server.prisma, body);
+  await auditLogin(request, result.user.id, 'email_code', { signup: true });
   setRefreshCookie(reply, result.refresh_token);
   reply.send(result);
 }
@@ -101,6 +106,7 @@ export async function emailOtpVerifyHandler(
 ): Promise<void> {
   const body = EmailOtpVerifyBodySchema.parse(request.body);
   const result = await authService.emailOtpVerify(request.server.prisma, body);
+  await auditLogin(request, result.user.id, 'email_code');
   setRefreshCookie(reply, result.refresh_token);
   reply.send(result);
 }
@@ -160,6 +166,7 @@ export async function googleCallbackHandler(
     return;
   }
 
+  await auditLogin(request, result.user.id, 'google');
   setRefreshCookie(reply, result.refresh_token);
   reply.redirect(frontendSuccessUrl(result.access_token));
 }
@@ -219,6 +226,7 @@ export async function githubCallbackHandler(
     return;
   }
 
+  await auditLogin(request, result.user.id, 'github');
   setRefreshCookie(reply, result.refresh_token);
   reply.redirect(frontendSuccessUrl(result.access_token));
 }
@@ -263,6 +271,7 @@ export async function telegramStatusHandler(
   const sessionId = readTelegramSessionCookie(request.cookies);
   const result = await authService.telegramStatus(request.server.prisma, token, sessionId);
   if (result.status === 'authenticated') {
+    await auditLogin(request, result.user.id, 'telegram');
     setRefreshCookie(reply, result.refresh_token);
   }
   reply.send(result);
@@ -281,10 +290,29 @@ export async function refreshHandler(request: FastifyRequest, reply: FastifyRepl
   reply.send(result);
 }
 
+/** Who a refresh token belonged to (for the audit log), or null if it is not valid. */
+function refreshTokenOwner(token: string): string | null {
+  try {
+    return verifyRefreshToken(token).sub;
+  } catch {
+    return null;
+  }
+}
+
 export async function logoutHandler(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const { refresh_token: bodyToken } = RefreshBodySchema.parse(request.body ?? {});
   const token = readRefreshCookie(request.cookies) ?? bodyToken;
-  if (token) await authService.logout(request.server.prisma, token);
+  if (token) {
+    await authService.logout(request.server.prisma, token);
+    const userId = refreshTokenOwner(token);
+    if (userId) {
+      await writeAudit(
+        request.server.prisma,
+        { actor_id: userId, action: 'auth.logout', target_type: 'user', target_id: userId },
+        request,
+      );
+    }
+  }
   clearRefreshCookie(reply);
   reply.code(204).send();
 }

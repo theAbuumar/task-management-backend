@@ -28,17 +28,29 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   const admin = [authenticate, requireWorkspaceMember('admin')];
 
   app.get('/', { schema: listProjectsSchema, preHandler: member }, listProjectsHandler);
-  app.post('/', { schema: createProjectSchema, preHandler: admin }, createProjectHandler);
+  app.post(
+    '/',
+    { schema: createProjectSchema, preHandler: admin, config: { audit: { action: 'project.created', target: 'project' } } },
+    createProjectHandler,
+  );
 
   app.get('/:projectId', { schema: getProjectSchema, preHandler: member }, getProjectHandler);
   app.patch(
     '/:projectId',
-    { schema: updateProjectSchema, preHandler: admin },
+    {
+      schema: updateProjectSchema,
+      preHandler: admin,
+      config: { audit: { action: 'project.updated', target: 'project', param: 'projectId' } },
+    },
     updateProjectHandler,
   );
   app.delete(
     '/:projectId',
-    { schema: deleteProjectSchema, preHandler: admin },
+    {
+      schema: deleteProjectSchema,
+      preHandler: admin,
+      config: { audit: { action: 'project.deleted', target: 'project', param: 'projectId' } },
+    },
     deleteProjectHandler,
   );
 
@@ -50,12 +62,20 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   );
   app.post(
     '/:projectId/members',
-    { schema: addProjectMemberSchema, preHandler: admin },
+    {
+      schema: addProjectMemberSchema,
+      preHandler: admin,
+      config: { audit: { action: 'project.member_added', target: 'user', bodyField: 'user_id' } },
+    },
     addProjectMemberHandler,
   );
   app.delete(
     '/:projectId/members/:userId',
-    { schema: removeProjectMemberSchema, preHandler: admin },
+    {
+      schema: removeProjectMemberSchema,
+      preHandler: admin,
+      config: { audit: { action: 'project.member_removed', target: 'user', param: 'userId' } },
+    },
     removeProjectMemberHandler,
   );
 }

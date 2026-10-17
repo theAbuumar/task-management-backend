@@ -366,15 +366,17 @@ describe('reports (10.B4)', () => {
     expect(wb.getWorksheet('Сводка')).toBeTruthy();
   });
 
-  it('справка: a PDF; an export is written to the activity log', async () => {
+  it('справка: a PDF; an export is written to the audit log', async () => {
     const res = await as(rector).get(api('/reports/discipline.pdf')).buffer(true);
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toBe('application/pdf');
     expect(String(res.body.subarray(0, 5))).toBe('%PDF-');
-    const logged = await app.prisma.activityLog.findMany({
-      where: { workspace: { slug: SLUG }, action: 'report.exported' },
+    const ws = await app.prisma.workspace.findUnique({ where: { slug: SLUG } });
+    const logged = await app.prisma.auditLog.findMany({
+      where: { workspace_id: ws!.id, action: 'report.exported' },
     });
-    expect(logged.map((l) => l.field)).toContain('discipline.pdf');
+    expect(logged.map((l) => l.target_id)).toContain('discipline.pdf');
+    expect(logged.find((l) => l.target_id === 'discipline.pdf')?.actor_id).toBe(rector.id);
   });
 
   it('project report: PDF for a visible project, 404 for a hidden private one', async () => {

@@ -24,7 +24,11 @@ export async function attachmentDeleteRoutes(app: FastifyInstance): Promise<void
 
   app.delete(
     '/:attachmentId',
-    { schema: deleteAttachmentSchema, preHandler: member },
+    {
+      schema: deleteAttachmentSchema,
+      preHandler: member,
+      config: { audit: { action: 'attachment.deleted', target: 'attachment', param: 'attachmentId' } },
+    },
     deleteAttachmentHandler,
   );
 }

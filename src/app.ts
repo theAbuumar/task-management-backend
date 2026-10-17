@@ -24,6 +24,7 @@ import authPlugin from './plugins/auth-hook.js';
 import workspacePlugin from './plugins/workspace-hook.js';
 import schedulerPlugin from './plugins/scheduler.js';
 import realtimePlugin from './plugins/realtime.js';
+import auditPlugin from './plugins/audit.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { demoRoutes } from './modules/auth/demo-routes.js';
 import { workspaceRoutes } from './modules/workspaces/routes.js';
@@ -49,6 +50,7 @@ import { meRoutes } from './modules/control/summary-routes.js';
 import { analyticsRoutes } from './modules/analytics/routes.js';
 import { invalidateAnalytics } from './modules/analytics/data.js';
 import { eventRoutes } from './modules/events/routes.js';
+import { auditRoutes } from './modules/audit/routes.js';
 
 export interface BuildAppOptions {
   /** Pino logger options, or `false`/`true` to disable/enable the default logger. */
@@ -142,6 +144,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(workspacePlugin);
   await app.register(schedulerPlugin);
   await app.register(realtimePlugin);
+  await app.register(auditPlugin);
 
   // Analytics keep loaded facts for a few minutes; any successful write inside a
   // workspace drops them so dashboards never lag behind a change (Ф10 10.B6).
@@ -218,6 +221,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(notificationRoutes, {
     prefix: '/api/v1/workspaces/:workspaceSlug/notifications',
   });
+  // Audit log for admins (Ф12 12.B1).
+  await app.register(auditRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/audit' });
   // Live updates: bell, boards, the open issue (Ф8 8.B1).
   await app.register(eventRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/events' });
   await app.register(inviteRoutes, { prefix: '/api/v1/invites' });

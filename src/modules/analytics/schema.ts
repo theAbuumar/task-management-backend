@@ -204,7 +204,7 @@ const fileResponse = (summary: string, description: string) => ({
   tags: ['Reports'],
   security,
   summary,
-  description: `${description} Same filters and visibility as analytics. Every export is recorded in the activity log (action \`report.exported\`).`,
+  description: `${description} Same filters and visibility as analytics. Every export is recorded in the audit log (action \`report.exported\`, see \`GET WS/audit\`).`,
   querystring: analyticsQuerystring,
 });
 

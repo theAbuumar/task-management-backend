@@ -50,6 +50,7 @@ export async function controlAdminRoutes(app: FastifyInstance): Promise<void> {
         response: { 200: settingsShape },
       },
       preHandler: admin,
+      config: { audit: { action: 'settings.control_updated', target: 'settings' } },
     },
     async (request) => {
       const patch = ControlSettingsPatchSchema.parse(request.body ?? {});

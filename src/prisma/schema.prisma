@@ -264,6 +264,28 @@ model TelegramLoginToken {
   @@index([session_id])
 }
 
+/// Журнал аудита (12.B1): кто, когда и что сделал — входы и выходы, роли и
+/// подразделения, приглашения, удаления, экспорт отчётов, изменение настроек.
+/// Неизменяем: триггер БД запрещает UPDATE и DELETE. Внешних ключей нет, чтобы
+/// записи пережили удаление пространства или пользователя (имя автора — снимок).
+model AuditLog {
+  id           String   @id @default(uuid())
+  /// null — событие вне пространства (вход, выход)
+  workspace_id String?
+  actor_id     String?
+  actor_name   String?
+  action       String
+  target_type  String?
+  target_id    String?
+  meta         Json?
+  ip           String?
+  user_agent   String?
+  created_at   DateTime @default(now())
+
+  @@index([workspace_id, created_at])
+  @@index([actor_id, created_at])
+}
+
 /// Telegram bot (ADR-011, режим 6 дней): the text the bot waits for from a chat
 /// after a button — a report for «Сдать на проверку», a remark for «Вернуть», a
 /// comment. One pending input per chat; it expires after 15 minutes.
