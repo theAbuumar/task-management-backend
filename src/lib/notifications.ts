@@ -13,6 +13,7 @@
 // notifications inside the same transaction as the mutation.
 
 import type { PrismaClient, Prisma, NotificationType } from '@prisma/client';
+import { publish } from './realtime.js';
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -52,6 +53,15 @@ export async function notify(db: DbClient, input: NotificationInput): Promise<vo
       issue_id: input.issue_id ?? null,
       entity_id: input.entity_id ?? null,
     })),
+  });
+  // Live bell (8.B1): only the recipients receive this event.
+  await publish(db, {
+    t: 'notification.created',
+    w: input.workspace_id,
+    a: input.include_actor ? null : input.actor_id,
+    i: input.issue_id ?? null,
+    r: recipients,
+    n: input.type,
   });
 }
 

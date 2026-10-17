@@ -7,8 +7,13 @@
 //
 // Accepts either a `PrismaClient` or a transaction client so callers can record
 // inside the same transaction as the mutation when atomicity matters.
+//
+// Every recorded row is also announced as a real-time event (lib/realtime): the
+// activity trail already covers every issue mutation — from the API, the Telegram
+// bot and the reminder scheduler alike — so live boards need no extra call sites.
 
 import type { PrismaClient, Prisma } from '@prisma/client';
+import { publishActivity } from './realtime.js';
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -61,6 +66,7 @@ export async function recordActivity(db: DbClient, entry: ActivityEntry): Promis
       new_value: entry.new_value ?? null,
     },
   });
+  await publishActivity(db, [entry]);
 }
 
 /** Append several activity rows in one batch. No-op when the list is empty. */
@@ -77,4 +83,5 @@ export async function recordActivities(db: DbClient, entries: ActivityEntry[]): 
       new_value: e.new_value ?? null,
     })),
   });
+  await publishActivity(db, entries);
 }

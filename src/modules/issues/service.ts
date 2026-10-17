@@ -14,6 +14,7 @@ import { expandDepartments, inDepartmentsWhere, visibleIssuesWhere } from './sco
 import { distributionProgress, type DistributionProgress } from './distribution-progress.js';
 import { deliverIssueEvent } from '../../lib/deliver.js';
 import { issueUrl } from '../../lib/urls.js';
+import { publish } from '../../lib/realtime.js';
 import { addDays, localDate, startOfLocalDay } from '../../lib/tz.js';
 import {
   OPEN_GROUPS,
@@ -632,6 +633,10 @@ export async function updateIssue(
       ];
     });
     await recordActivities(tx, changes);
+    // A reorder (sort_order) leaves no activity row, but other boards must follow it.
+    if (changes.length === 0) {
+      await publish(tx, { t: 'issue.updated', w: workspaceId, a: actorId, i: issueId });
+    }
 
     // State transitions drive the review cycle, so dragging a card behaves like
     // the explicit review buttons (5.B2): → review opens a hand-in; leaving review
