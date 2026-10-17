@@ -9,6 +9,7 @@ import { sendMail } from './mailer.js';
 import { issueUrl } from './urls.js';
 import { pluralize } from './plural.js';
 import { sendBotMessage, telegramConfigured } from '../modules/auth/telegram.service.js';
+import { notificationButtons } from '../modules/telegram/views.js';
 
 export type IssueEventKind =
   | 'review_requested'
@@ -105,7 +106,18 @@ export async function deliverIssueEvent(
         })
       : [];
     const viaTelegram = new Set(telegram.map((t) => t.user_id));
-    const sends: Promise<unknown>[] = telegram.map((t) => sendBotMessage(Number(t.provider_user_id), text));
+    // Buttons act right in the chat: accept/return a hand-in, hand in again, decide
+    // a deadline change; «Подробнее» opens the issue card (bot inside the backend).
+    const buttonKind =
+      params.kind === 'review_requested' ||
+      params.kind === 'review_returned' ||
+      params.kind === 'deadline_change_requested'
+        ? params.kind
+        : 'other';
+    const reply_markup = { inline_keyboard: notificationButtons(buttonKind, params.issueId, link) };
+    const sends: Promise<unknown>[] = telegram.map((t) =>
+      sendBotMessage(Number(t.provider_user_id), text, { reply_markup }),
+    );
 
     const emailIds = recipients.filter((id) => !viaTelegram.has(id));
     if (emailIds.length > 0) {

@@ -21,6 +21,7 @@ import {
   WS_INVITE_DECLINE_PREFIX,
   type TelegramUpdate,
 } from './telegram.service.js';
+import { handleBotCallback, handleBotMessage } from '../telegram/bot.js';
 import type {
   RegisterBody,
   LoginBody,
@@ -537,33 +538,32 @@ export async function handleTelegramUpdate(
       return;
     }
 
+    // Everything else is the work bot: menu lists, issue cards, action buttons.
     if (!data.startsWith(CONFIRM_CALLBACK_PREFIX)) {
-      await answerCallbackQuery(cq.id, 'Unknown action.');
+      await handleBotCallback(prisma, cq);
       return;
     }
     const token = data.slice(CONFIRM_CALLBACK_PREFIX.length);
     try {
       await confirmLoginToken(prisma, token, String(cq.from.id));
-      await answerCallbackQuery(cq.id, 'Signed in! Head back to the website.');
+      await answerCallbackQuery(cq.id, 'Вход подтверждён! Вернитесь на сайт.');
     } catch (err) {
       await answerCallbackQuery(
         cq.id,
-        err instanceof AppError ? err.message : 'Could not confirm sign-in.',
+        err instanceof AppError ? err.message : 'Не удалось подтвердить вход.',
       );
     }
     return;
   }
 
   // `/start <token>` → send the confirm button (only for a live pending token).
+  // Any other message — menu, commands, a requested report — goes to the work bot.
   const message = update.message;
   if (message?.text) {
     const chatId = message.chat.id;
     const token = parseStartToken(message.text);
     if (!token) {
-      await sendBotMessage(
-        chatId,
-        'Open this bot from the website’s “Sign in with Telegram” button to log in.',
-      );
+      await handleBotMessage(prisma, message);
       return;
     }
 
@@ -571,7 +571,7 @@ export async function handleTelegramUpdate(
     if (!row || row.status !== 'pending' || row.expires_at < new Date()) {
       await sendBotMessage(
         chatId,
-        'This sign-in link is invalid or has expired. Please start again from the website.',
+        'Ссылка для входа недействительна или устарела. Начните вход на сайте заново.',
       );
       return;
     }

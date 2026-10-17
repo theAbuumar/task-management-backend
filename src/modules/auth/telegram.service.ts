@@ -88,8 +88,19 @@ export interface TelegramUpdate {
 
 // ─── Bot API calls ──────────────────────────────────────────────────────────────
 
-/** POST a method on the Bot API. Best-effort: logs to the error path via throw on !ok. */
-async function callBotApi(method: string, body: unknown): Promise<void> {
+/** Inline keyboard markup (Bot API `InlineKeyboardMarkup`). */
+export interface InlineButton {
+  text: string;
+  callback_data?: string;
+  url?: string;
+}
+export type ReplyMarkup =
+  | { inline_keyboard: InlineButton[][] }
+  | { keyboard: { text: string }[][]; resize_keyboard?: boolean; is_persistent?: boolean }
+  | { force_reply: true; input_field_placeholder?: string };
+
+/** POST a method on the Bot API and return its `result`. Throws on failure. */
+export async function callBotApi<T = unknown>(method: string, body: unknown): Promise<T> {
   const { botToken } = requireTelegramConfig();
   const res = await fetch(`${TELEGRAM_API_BASE}/bot${botToken}/${method}`, {
     method: 'POST',
@@ -97,6 +108,8 @@ async function callBotApi(method: string, body: unknown): Promise<void> {
     body: JSON.stringify(body),
   });
   if (!res.ok) throw AppError.badRequest(`Telegram ${method} failed`);
+  const json = (await res.json().catch(() => ({}))) as { result?: T };
+  return json.result as T;
 }
 
 /**
@@ -107,19 +120,62 @@ async function callBotApi(method: string, body: unknown): Promise<void> {
 export async function sendConfirmPrompt(chatId: number, token: string): Promise<void> {
   await callBotApi('sendMessage', {
     chat_id: chatId,
-    text: 'Tap the button below to confirm you want to sign in to Task Management.',
+    text: 'Нажмите кнопку ниже, чтобы подтвердить вход в систему поручений.',
     reply_markup: {
       inline_keyboard: [
-        [{ text: '✅ Confirm sign-in', callback_data: `${CONFIRM_CALLBACK_PREFIX}${token}` }],
+        [{ text: '✅ Подтвердить вход', callback_data: `${CONFIRM_CALLBACK_PREFIX}${token}` }],
       ],
     },
   });
 }
 
-/** Send a plain informational message (e.g. an expired/invalid link notice). */
-export async function sendBotMessage(chatId: number, text: string): Promise<void> {
-  await callBotApi('sendMessage', { chat_id: chatId, text });
+export interface BotMessageOptions {
+  reply_markup?: ReplyMarkup;
+  /** 'HTML' — the caller escapes user text (see `escapeHtml`). */
+  parse_mode?: 'HTML';
 }
+
+/** Send a message: plain text, or HTML with buttons. */
+export async function sendBotMessage(
+  chatId: number,
+  text: string,
+  opts: BotMessageOptions = {},
+): Promise<void> {
+  await callBotApi('sendMessage', {
+    chat_id: chatId,
+    text,
+    link_preview_options: { is_disabled: true },
+    ...opts,
+  });
+}
+
+/** Replace the text (and buttons) of a message the bot sent earlier. */
+export async function editBotMessage(
+  chatId: number,
+  messageId: number,
+  text: string,
+  opts: BotMessageOptions = {},
+): Promise<void> {
+  await callBotApi('editMessageText', {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    link_preview_options: { is_disabled: true },
+    ...opts,
+  });
+}
+
+/** `<`, `>` and `&` in user text would break an HTML message. */
+export function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+const ROLE_RU: Record<string, string> = {
+  owner: 'владелец',
+  admin: 'администратор',
+  member: 'участник',
+  guest: 'гость',
+};
 
 export interface WorkspaceInvitePromptOptions {
   /** The invite token; rides in the accept/decline callback_data. */
@@ -142,15 +198,15 @@ export async function sendWorkspaceInvitePrompt(
   await callBotApi('sendMessage', {
     chat_id: chatId,
     text: [
-      `${opts.inviterName} invited you to join the "${opts.workspaceName}" workspace as ${opts.role}.`,
+      `${opts.inviterName} приглашает вас в пространство «${opts.workspaceName}» (роль: ${ROLE_RU[opts.role] ?? opts.role}).`,
       '',
-      'Do you want to accept?',
+      'Принять приглашение?',
     ].join('\n'),
     reply_markup: {
       inline_keyboard: [
         [
-          { text: '✅ Accept', callback_data: `${WS_INVITE_ACCEPT_PREFIX}${opts.token}` },
-          { text: '❌ Decline', callback_data: `${WS_INVITE_DECLINE_PREFIX}${opts.token}` },
+          { text: '✅ Принять', callback_data: `${WS_INVITE_ACCEPT_PREFIX}${opts.token}` },
+          { text: '❌ Отклонить', callback_data: `${WS_INVITE_DECLINE_PREFIX}${opts.token}` },
         ],
       ],
     },
@@ -171,6 +227,8 @@ export interface IssueNotificationOptions {
    * false for the "task with no assignee" broadcast to every project member.
    */
   assigned: boolean;
+  /** Action buttons under the message (bot inside the backend, ADR-011). */
+  buttons?: InlineButton[][];
 }
 
 /**
@@ -185,10 +243,11 @@ export async function sendIssueNotification(
   const headline = opts.assigned
     ? `📋 ${opts.actorName} назначил(а) вам задачу`
     : `🆕 ${opts.actorName} создал(а) задачу в проекте «${opts.projectName}»`;
-  await callBotApi('sendMessage', {
-    chat_id: chatId,
-    text: [headline, '', `${opts.issueKey}  ${opts.issueTitle}`, '', opts.issueUrl].join('\n'),
-  });
+  await sendBotMessage(
+    chatId,
+    [headline, '', `${opts.issueKey}  ${opts.issueTitle}`, '', opts.issueUrl].join('\n'),
+    opts.buttons ? { reply_markup: { inline_keyboard: opts.buttons } } : {},
+  );
 }
 
 /**
@@ -200,16 +259,24 @@ export async function sendDeletionCode(chatId: number, code: string): Promise<vo
   await callBotApi('sendMessage', {
     chat_id: chatId,
     text: [
-      'Use this code to permanently delete your Task Management account:',
+      'Код для безвозвратного удаления аккаунта в системе поручений:',
       '',
       `    ${code}`,
       '',
-      'The code expires in 10 minutes. If you did not request account deletion, ignore this message.',
+      'Код действует 10 минут. Если вы не запрашивали удаление, просто проигнорируйте это сообщение.',
     ].join('\n'),
   });
 }
 
 /** Acknowledge a tapped inline button so Telegram stops the loading spinner. */
-export async function answerCallbackQuery(callbackQueryId: string, text: string): Promise<void> {
-  await callBotApi('answerCallbackQuery', { callback_query_id: callbackQueryId, text });
+export async function answerCallbackQuery(
+  callbackQueryId: string,
+  text: string,
+  showAlert = false,
+): Promise<void> {
+  await callBotApi('answerCallbackQuery', {
+    callback_query_id: callbackQueryId,
+    text,
+    ...(showAlert && { show_alert: true }),
+  });
 }

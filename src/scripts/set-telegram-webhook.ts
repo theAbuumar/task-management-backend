@@ -7,8 +7,8 @@
 // register via `setWebhook`. This standalone helper reads the bot token and the
 // shared webhook secret from the environment (a local `.env` in dev, or the
 // host's env vars) and points Telegram at `<base>/api/v1/auth/telegram/webhook`.
-// It then prints `getWebhookInfo` so you can confirm the URL took and see any
-// delivery error. Deliberately does NOT import the app `config` — it needs only
+// It also registers the bot's command menu (/my, /today, /overdue…), then prints
+// `getWebhookInfo` so you can confirm the URL took and see any delivery error. Deliberately does NOT import the app `config` — it needs only
 // the two Telegram vars, not a full DATABASE_URL / JWT setup.
 
 const WEBHOOK_PATH = '/api/v1/auth/telegram/webhook';
@@ -88,6 +88,19 @@ async function main(): Promise<void> {
   await callBotApi(token, 'setWebhook', {
     url,
     ...(secret ? { secret_token: secret } : {}),
+    allowed_updates: ['message', 'callback_query'],
+  });
+  // The «/» menu of the work bot (modules/telegram/bot.ts).
+  await callBotApi(token, 'setMyCommands', {
+    commands: [
+      { command: 'my', description: 'Мои задачи' },
+      { command: 'today', description: 'Срок сегодня' },
+      { command: 'overdue', description: 'Просрочено' },
+      { command: 'review', description: 'Ждут моей проверки' },
+      { command: 'control', description: 'Поручения на контроле' },
+      { command: 'menu', description: 'Главное меню' },
+      { command: 'cancel', description: 'Отменить ввод' },
+    ],
   });
 
   const info = (await callBotApi(token, 'getWebhookInfo', {})) as {

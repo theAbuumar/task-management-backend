@@ -5,7 +5,7 @@
 // are inherited from the parent. Everything happens in one transaction: a
 // department without a head fails the whole request before anything is written.
 
-import type { PrismaClient } from '@prisma/client';
+import type { IssueKind, PrismaClient } from '@prisma/client';
 import { AppError } from '../../lib/errors.js';
 import { recordActivity, ACTIVITY_ACTIONS } from '../../lib/activity.js';
 import { notify } from '../../lib/notifications.js';
@@ -128,7 +128,13 @@ export async function distributeIssue(
       });
     }
 
-    const children: { id: string; sequence_id: number; title: string; head: string }[] = [];
+    const children: {
+      id: string;
+      sequence_id: number;
+      title: string;
+      kind: IssueKind;
+      head: string;
+    }[] = [];
     for (const d of departments) {
       const child = await tx.issue.create({
         data: {
@@ -141,7 +147,7 @@ export async function distributeIssue(
           assignees: { create: { user_id: d.head_id!, is_primary: true } },
           labels,
         },
-        select: { id: true, sequence_id: true, title: true },
+        select: { id: true, sequence_id: true, title: true, kind: true },
       });
       await recordActivity(tx, {
         workspace_id: workspaceId,

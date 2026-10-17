@@ -264,6 +264,19 @@ model TelegramLoginToken {
   @@index([session_id])
 }
 
+/// Telegram bot (ADR-011, режим 6 дней): the text the bot waits for from a chat
+/// after a button — a report for «Сдать на проверку», a remark for «Вернуть», a
+/// comment. One pending input per chat; it expires after 15 minutes.
+model TelegramPendingInput {
+  chat_id    String   @id
+  user_id    String
+  issue_id   String
+  /// submit | return | comment
+  action     String
+  expires_at DateTime
+  created_at DateTime @default(now())
+}
+
 model Workspace {
   id          String   @id @default(uuid())
   name        String

@@ -187,24 +187,26 @@ export async function respondToInviteViaTelegram(
     where: { token },
     include: { workspace: { select: { name: true } } },
   });
-  if (!invite) return 'This invitation is no longer valid.';
+  if (!invite) return 'Приглашение больше не действует.';
 
   // Only the invited account — proven by its linked telegram id — may respond.
   const telegram = await prisma.authIdentity.findFirst({
     where: { user_id: invite.target_user_id, provider: 'telegram' },
   });
   if (!telegram || telegram.provider_user_id !== telegramId) {
-    return 'This invitation is not addressed to your account.';
+    return 'Это приглашение адресовано другому аккаунту.';
   }
 
   try {
     const { member } = await applyResponse(prisma, invite, action);
-    if (action === 'decline') return `Declined the invite to "${invite.workspace.name}".`;
+    if (action === 'decline') return `Приглашение в «${invite.workspace.name}» отклонено.`;
     return member
-      ? `You've joined "${invite.workspace.name}"! Open the app to get started.`
-      : `You've joined "${invite.workspace.name}".`;
+      ? `Вы вступили в «${invite.workspace.name}»! Откройте сайт, чтобы начать работу.`
+      : `Вы вступили в «${invite.workspace.name}».`;
   } catch (err) {
-    return err instanceof AppError ? err.message : 'Could not process the invitation.';
+    if (err instanceof AppError && err.code === 'GONE') return 'Срок приглашения истёк.';
+    if (err instanceof AppError && err.code === 'CONFLICT') return 'На это приглашение уже ответили.';
+    return 'Не удалось обработать приглашение.';
   }
 }
 

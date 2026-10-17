@@ -15,6 +15,7 @@ import { distributionProgress, type DistributionProgress } from './distribution-
 import { deliverIssueEvent } from '../../lib/deliver.js';
 import { issueUrl } from '../../lib/urls.js';
 import { publish } from '../../lib/realtime.js';
+import { notificationButtons } from '../telegram/views.js';
 import { addDays, localDate, startOfLocalDay } from '../../lib/tz.js';
 import {
   OPEN_GROUPS,
@@ -912,7 +913,7 @@ export async function notifyIssueRecipients(
     projectId: string;
     actorId: string;
     recipientIds: string[];
-    issue: Pick<Issue, 'title' | 'sequence_id'>;
+    issue: Pick<Issue, 'id' | 'title' | 'sequence_id' | 'kind'>;
     assigned: boolean;
   },
 ): Promise<void> {
@@ -940,9 +941,10 @@ export async function notifyIssueRecipients(
   if (!project || !actor) return;
 
   const issueKey = `${project.identifier}-${params.issue.sequence_id}`;
+  const link = issueUrl(project.workspace.slug, issueKey);
   const opts = {
     issueKey,
-    issueUrl: issueUrl(project.workspace.slug, issueKey),
+    issueUrl: link,
     issueTitle: params.issue.title,
     projectName: project.name,
     actorName: actor.display_name,
@@ -951,8 +953,12 @@ export async function notifyIssueRecipients(
 
   // Telegram for linked recipients.
   const telegramUserIds = new Set(telegramIdentities.map((i) => i.user_id));
+  // «Ознакомлен» right under a new assignment; «Подробнее» opens the card in the bot.
+  const buttons = notificationButtons('issue_assigned', params.issue.id, link, {
+    acknowledge: params.assigned && params.issue.kind === 'assignment',
+  });
   const sends: Promise<unknown>[] = telegramIdentities.map((i) =>
-    sendIssueNotification(Number(i.provider_user_id), opts),
+    sendIssueNotification(Number(i.provider_user_id), { ...opts, buttons }),
   );
 
   // Email fallback for recipients WITHOUT a linked Telegram, when they have an address.
