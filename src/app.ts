@@ -37,6 +37,9 @@ import { attachmentRoutes, attachmentDeleteRoutes } from './modules/attachments/
 import { notificationRoutes } from './modules/notifications/routes.js';
 import { inviteRoutes } from './modules/invites/routes.js';
 import { memberInviteRoutes } from './modules/member-invites/routes.js';
+import { departmentRoutes } from './modules/departments/routes.js';
+import { mediaRoutes } from './modules/media/routes.js';
+import { workspaceIssueRoutes } from './modules/issues/workspace-routes.js';
 
 export interface BuildAppOptions {
   /** Pino logger options, or `false`/`true` to disable/enable the default logger. */
@@ -147,6 +150,12 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(authRoutes, { prefix: '/api/v1/auth' });
   await app.register(workspaceRoutes, { prefix: '/api/v1/workspaces' });
   await app.register(projectRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/projects' });
+  await app.register(workspaceIssueRoutes, {
+    prefix: '/api/v1/workspaces/:workspaceSlug/issues',
+  });
+  await app.register(departmentRoutes, {
+    prefix: '/api/v1/workspaces/:workspaceSlug/departments',
+  });
   await app.register(stateRoutes, {
     prefix: '/api/v1/workspaces/:workspaceSlug/projects/:projectId/states',
   });
@@ -183,6 +192,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(inviteRoutes, { prefix: '/api/v1/invites' });
   // Personal invitations inbox for invites that target existing users.
   await app.register(memberInviteRoutes, { prefix: '/api/v1/invitations' });
+  // Avatars & workspace logos (presigned upload + stable public link).
+  await app.register(mediaRoutes);
 
   return app;
 }

@@ -3,6 +3,21 @@ import type { FastifySchema } from 'fastify';
 
 // ─── Zod validators ───────────────────────────────────────────────────────────
 
+/** IANA time zone the runtime knows (e.g. "Asia/Dushanbe"). */
+const timeZone = z
+  .string()
+  .max(64)
+  .refine((tz) => {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: tz });
+      return true;
+    } catch {
+      return false;
+    }
+  }, 'Unknown time zone');
+
+const LOCALES = ['ru', 'en'] as const;
+
 export const CreateWorkspaceBodySchema = z.object({
   name: z.string().min(1).max(100),
   slug: z
@@ -10,6 +25,10 @@ export const CreateWorkspaceBodySchema = z.object({
     .min(2)
     .max(50)
     .regex(/^[a-z0-9-]+$/, 'Slug may only contain lowercase letters, digits, and hyphens'),
+  short_name: z.string().max(30).optional().nullable(),
+  description: z.string().max(1000).optional().nullable(),
+  timezone: timeZone.optional(),
+  locale: z.enum(LOCALES).optional(),
 });
 
 export const UpdateWorkspaceBodySchema = z.object({
@@ -20,6 +39,11 @@ export const UpdateWorkspaceBodySchema = z.object({
     .max(50)
     .regex(/^[a-z0-9-]+$/, 'Slug may only contain lowercase letters, digits, and hyphens')
     .optional(),
+  short_name: z.string().max(30).optional().nullable(),
+  description: z.string().max(1000).optional().nullable(),
+  logo_url: z.string().url().max(2000).optional().nullable(),
+  timezone: timeZone.optional(),
+  locale: z.enum(LOCALES).optional(),
 });
 
 export const AddMemberBodySchema = z.object({
@@ -27,8 +51,23 @@ export const AddMemberBodySchema = z.object({
   role: z.enum(['admin', 'member', 'guest']).default('member'),
 });
 
-export const ChangeMemberRoleBodySchema = z.object({
-  role: z.enum(['admin', 'member', 'guest']),
+// Update a member: access role and/or place in the org structure (ADR-007).
+export const ChangeMemberRoleBodySchema = z
+  .object({
+    role: z.enum(['admin', 'member', 'guest']).optional(),
+    department_id: z.string().uuid().optional().nullable(),
+    position: z.string().trim().max(150).optional().nullable(),
+  })
+  .refine(
+    (b) => b.role !== undefined || b.department_id !== undefined || b.position !== undefined,
+    'Nothing to update',
+  );
+
+export const ListMembersQuerySchema = z.object({
+  department: z.string().uuid().optional(),
+  // Include sub-departments of `department` (default true).
+  subtree: z.coerce.boolean().optional(),
+  search: z.string().max(100).optional(),
 });
 
 export const InviteMemberBodySchema = z.object({
@@ -36,6 +75,7 @@ export const InviteMemberBodySchema = z.object({
   role: z.enum(['admin', 'member', 'guest']).default('member'),
 });
 
+export type ListMembersQuery = z.infer<typeof ListMembersQuerySchema>;
 export type CreateWorkspaceBody = z.infer<typeof CreateWorkspaceBodySchema>;
 export type UpdateWorkspaceBody = z.infer<typeof UpdateWorkspaceBodySchema>;
 export type AddMemberBody = z.infer<typeof AddMemberBodySchema>;
@@ -50,6 +90,12 @@ const workspaceShape = {
     id: { type: 'string' },
     name: { type: 'string' },
     slug: { type: 'string' },
+    short_name: { type: 'string', nullable: true },
+    description: { type: 'string', nullable: true },
+    logo_url: { type: 'string', nullable: true },
+    timezone: { type: 'string' },
+    locale: { type: 'string' },
+    settings: { type: 'object', additionalProperties: true },
     owner_id: { type: 'string' },
     created_at: { type: 'string', format: 'date-time' },
     updated_at: { type: 'string', format: 'date-time' },
@@ -62,15 +108,30 @@ const memberShape = {
     workspace_id: { type: 'string' },
     user_id: { type: 'string' },
     role: { type: 'string', enum: ['owner', 'admin', 'member', 'guest'] },
+    department_id: { type: 'string', nullable: true },
+    position: { type: 'string', nullable: true },
     created_at: { type: 'string', format: 'date-time' },
     updated_at: { type: 'string', format: 'date-time' },
     user: {
       type: 'object',
       properties: {
         id: { type: 'string' },
-        email: { type: 'string' },
+        email: { type: 'string', nullable: true },
         display_name: { type: 'string' },
+        last_name: { type: 'string', nullable: true },
+        first_name: { type: 'string', nullable: true },
+        middle_name: { type: 'string', nullable: true },
+        phone: { type: 'string', nullable: true },
         avatar_url: { type: 'string', nullable: true },
+      },
+    },
+    department: {
+      type: 'object',
+      nullable: true,
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        short_name: { type: 'string', nullable: true },
       },
     },
   },
@@ -95,6 +156,10 @@ export const createWorkspaceSchema: FastifySchema = {
     properties: {
       name: { type: 'string', minLength: 1, maxLength: 100 },
       slug: { type: 'string', minLength: 2, maxLength: 50, pattern: '^[a-z0-9-]+$' },
+      short_name: { type: 'string', maxLength: 30, nullable: true },
+      description: { type: 'string', maxLength: 1000, nullable: true },
+      timezone: { type: 'string', maxLength: 64 },
+      locale: { type: 'string', enum: ['ru', 'en'] },
     },
   },
   response: { 201: workspaceShape },
@@ -118,6 +183,11 @@ export const updateWorkspaceSchema: FastifySchema = {
     properties: {
       name: { type: 'string', minLength: 1, maxLength: 100 },
       slug: { type: 'string', minLength: 2, maxLength: 50, pattern: '^[a-z0-9-]+$' },
+      short_name: { type: 'string', maxLength: 30, nullable: true },
+      description: { type: 'string', maxLength: 1000, nullable: true },
+      logo_url: { type: 'string', nullable: true },
+      timezone: { type: 'string', maxLength: 64 },
+      locale: { type: 'string', enum: ['ru', 'en'] },
     },
   },
   response: { 200: workspaceShape },
@@ -136,6 +206,14 @@ export const listMembersSchema: FastifySchema = {
   summary: 'List workspace members',
   security,
   params: { type: 'object', properties: { workspaceSlug: { type: 'string' } } },
+  querystring: {
+    type: 'object',
+    properties: {
+      department: { type: 'string', format: 'uuid' },
+      subtree: { type: 'boolean' },
+      search: { type: 'string', maxLength: 100 },
+    },
+  },
   response: { 200: { type: 'array', items: memberShape } },
 };
 
@@ -157,7 +235,9 @@ export const addMemberSchema: FastifySchema = {
 
 export const changeMemberRoleSchema: FastifySchema = {
   tags: ['Workspaces'],
-  summary: 'Change a member role (admin+)',
+  summary: 'Update a member: role, department, position (admin+)',
+  description:
+    'The owner role cannot be changed and you cannot change your own role; department and position can be set for anyone, including the owner and yourself.',
   security,
   params: {
     type: 'object',
@@ -165,8 +245,11 @@ export const changeMemberRoleSchema: FastifySchema = {
   },
   body: {
     type: 'object',
-    required: ['role'],
-    properties: { role: { type: 'string', enum: ['admin', 'member', 'guest'] } },
+    properties: {
+      role: { type: 'string', enum: ['admin', 'member', 'guest'] },
+      department_id: { type: 'string', format: 'uuid', nullable: true },
+      position: { type: 'string', maxLength: 150, nullable: true },
+    },
   },
   response: { 200: memberShape },
 };

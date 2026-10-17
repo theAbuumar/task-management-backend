@@ -26,6 +26,9 @@ enum StateGroup {
   backlog
   unstarted
   started
+  // "На проверке": the assignee handed the work in, the controller hasn't accepted
+  // it yet (ADR-008). Counts as in-progress for progress/analytics.
+  review
   completed
   cancelled
 }
@@ -55,10 +58,43 @@ enum IssueLinkType {
 
 // In-app notification kinds (TZ §5.18). Generated as a side effect of the
 // events that already write the activity trail.
+enum ProjectVisibility {
+  public // every workspace member sees it
+  private // only project members (+ workspace admins)
+}
+
+enum ProjectStatus {
+  planned
+  active
+  paused
+  completed
+}
+
+// A plain task vs. an "поручение" — an assignment with a controller who accepts
+// the result (ADR-008).
+enum IssueKind {
+  task
+  assignment
+}
+
+// The full list is fixed up front (ADR-020) so later phases don't alter the enum.
 enum NotificationType {
   issue_assigned
   comment_added
   mentioned
+  state_changed
+  review_requested
+  review_approved
+  review_returned
+  acknowledged
+  due_soon
+  overdue
+  escalated
+  deadline_change_requested
+  deadline_change_decided
+  invite_received
+  report_ready
+  digest
 }
 
 // ─── Auth: providers & login-flow enums (auth_tz.md §2) ──────────────────────
@@ -97,33 +133,43 @@ enum MemberInviteStatus {
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model User {
-  id            String   @id @default(uuid())
+  id             String   @id @default(uuid())
   // Nullable: Telegram-only accounts have no email (auth_tz.md §2). Still unique when present.
-  email         String?  @unique
-  email_verified Boolean @default(false)
+  email          String?  @unique
+  email_verified Boolean  @default(false)
   // Nullable: accounts created via OAuth/Telegram have no password until they set one.
-  password_hash String?
-  display_name  String
-  avatar_url    String?
-  is_active     Boolean  @default(true)
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
+  password_hash  String?
+  display_name   String
+  // Full name, Russian order (Фамилия Имя Отчество). Optional for accounts created
+  // before Ф3 / via providers; display_name stays the rendered name.
+  last_name      String?
+  first_name     String?
+  middle_name    String?
+  phone          String?
+  locale         String   @default("ru")
+  timezone       String?
+  avatar_url     String?
+  is_active      Boolean  @default(true)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
 
-  identities            AuthIdentity[]
-  refresh_tokens        RefreshToken[]
-  workspace_memberships WorkspaceMember[]
-  project_memberships   ProjectMember[]
-  owned_workspaces      Workspace[]       @relation("WorkspaceOwner")
-  led_projects          Project[]         @relation("ProjectLead")
-  led_modules           Module[]          @relation("ModuleLead")
-  created_issues        Issue[]           @relation("IssueCreatedBy")
-  assigned_issues       IssueAssignee[]
-  comments              Comment[]
-  activities            ActivityLog[]     @relation("ActivityActor")
-  attachments           Attachment[]
-  notifications         Notification[]    @relation("NotificationRecipient")
-  triggered_notifications Notification[]  @relation("NotificationActor")
-  sent_invites          WorkspaceInvite[]
+  headed_departments      Department[]            @relation("DepartmentHead")
+  controlled_issues       Issue[]                 @relation("IssueController")
+  identities              AuthIdentity[]
+  refresh_tokens          RefreshToken[]
+  workspace_memberships   WorkspaceMember[]
+  project_memberships     ProjectMember[]
+  owned_workspaces        Workspace[]             @relation("WorkspaceOwner")
+  led_projects            Project[]               @relation("ProjectLead")
+  led_modules             Module[]                @relation("ModuleLead")
+  created_issues          Issue[]                 @relation("IssueCreatedBy")
+  assigned_issues         IssueAssignee[]
+  comments                Comment[]
+  activities              ActivityLog[]           @relation("ActivityActor")
+  attachments             Attachment[]
+  notifications           Notification[]          @relation("NotificationRecipient")
+  triggered_notifications Notification[]          @relation("NotificationActor")
+  sent_invites            WorkspaceInvite[]
   member_invites_sent     WorkspaceMemberInvite[] @relation("MemberInviteInviter")
   member_invites_received WorkspaceMemberInvite[] @relation("MemberInviteTarget")
 }
@@ -200,63 +246,113 @@ model TelegramLoginToken {
 }
 
 model Workspace {
-  id         String   @id @default(uuid())
-  name       String
-  slug       String   @unique
-  owner_id   String
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  short_name  String?
+  description String?
+  logo_url    String?
+  // IANA zone: deadlines ("end of day") and reminder times are computed in it (ADR-012).
+  timezone    String   @default("UTC")
+  locale      String   @default("ru")
+  // Per-workspace knobs (execution control in Ф5, notifications in Ф8).
+  settings    Json     @default("{}")
+  owner_id    String
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
 
-  owner    User              @relation("WorkspaceOwner", fields: [owner_id], references: [id])
-  members    WorkspaceMember[]
-  projects   Project[]
-  labels     Label[]
-  issues     Issue[]
-  cycles      Cycle[]
-  modules     Module[]
-  activities  ActivityLog[]
-  attachments Attachment[]
-  notifications Notification[]
-  invites     WorkspaceInvite[]
+  owner          User                    @relation("WorkspaceOwner", fields: [owner_id], references: [id])
+  departments    Department[]
+  members        WorkspaceMember[]
+  projects       Project[]
+  labels         Label[]
+  issues         Issue[]
+  cycles         Cycle[]
+  modules        Module[]
+  activities     ActivityLog[]
+  attachments    Attachment[]
+  notifications  Notification[]
+  invites        WorkspaceInvite[]
   member_invites WorkspaceMemberInvite[] @relation("WorkspaceMemberInvites")
 }
 
 model WorkspaceMember {
-  workspace_id String
-  user_id      String
-  role         WorkspaceRole @default(member)
-  created_at   DateTime      @default(now())
-  updated_at   DateTime      @updatedAt
+  workspace_id  String
+  user_id       String
+  role          WorkspaceRole @default(member)
+  // Place in the org structure — independent of the access role (ADR-007).
+  department_id String?
+  position      String?
+  created_at    DateTime      @default(now())
+  updated_at    DateTime      @updatedAt
 
-  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
-  user      User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  workspace  Workspace   @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  user       User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  department Department? @relation(fields: [department_id], references: [id], onDelete: SetNull)
 
   @@id([workspace_id, user_id])
   @@index([user_id])
+  @@index([department_id])
 }
 
-model Project {
+// Org structure node: Ректорат → проректоры → факультеты → кафедры / отделы (ADR-007).
+model Department {
   id           String   @id @default(uuid())
   workspace_id String
+  parent_id    String?
   name         String
-  identifier   String
-  description  String?
-  lead_id      String?
-  is_archived  Boolean  @default(false)
+  short_name   String?
+  head_id      String?
+  order        Int      @default(0)
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
 
-  workspace Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
-  lead      User?           @relation("ProjectLead", fields: [lead_id], references: [id])
-  members   ProjectMember[]
-  states    State[]
-  issues    Issue[]
-  labels    Label[]
-  cycles    Cycle[]
-  modules   Module[]
+  workspace Workspace         @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  parent    Department?       @relation("DepartmentTree", fields: [parent_id], references: [id], onDelete: Cascade)
+  children  Department[]      @relation("DepartmentTree")
+  head      User?             @relation("DepartmentHead", fields: [head_id], references: [id], onDelete: SetNull)
+  members   WorkspaceMember[]
+  projects  Project[]
+
+  @@index([workspace_id])
+  @@index([parent_id])
+}
+
+model Project {
+  id            String            @id @default(uuid())
+  workspace_id  String
+  name          String
+  identifier    String
+  description   String?
+  lead_id       String?
+  is_archived   Boolean           @default(false)
+  visibility    ProjectVisibility @default(public)
+  status        ProjectStatus     @default(active)
+  start_date    DateTime?
+  target_date   DateTime?
+  // Department that curates the project (for analytics and the org view).
+  department_id String?
+  icon          String?
+  color         String?
+  created_at    DateTime          @default(now())
+  updated_at    DateTime          @updatedAt
+  // Soft delete: the project sits in the trash for 30 days (ADR-017).
+  deleted_at    DateTime?
+
+  workspace  Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  lead       User?           @relation("ProjectLead", fields: [lead_id], references: [id])
+  department Department?     @relation(fields: [department_id], references: [id], onDelete: SetNull)
+  members    ProjectMember[]
+  states     State[]
+  issues     Issue[]
+  labels     Label[]
+  cycles     Cycle[]
+  modules    Module[]
 
   @@unique([workspace_id, identifier])
   @@index([workspace_id])
+  @@index([department_id])
+  @@index([deleted_at])
 }
 
 model ProjectMember {
@@ -306,27 +402,34 @@ model Issue {
   due_date        DateTime?
   completed_at    DateTime?
   created_by_id   String
+  // Поручение fields (ADR-008).
+  kind            IssueKind     @default(task)
+  controller_id   String?
+  requires_review Boolean       @default(false)
+  // What the assignment is based on: "Протокол ректората №5 от 12.10.2026".
+  basis           String?
   sort_order      Float         @default(0)
   created_at      DateTime      @default(now())
   updated_at      DateTime      @updatedAt
   deleted_at      DateTime?
 
-  workspace  Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
-  project    Project         @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  state      State           @relation(fields: [state_id], references: [id])
-  cycle      Cycle?          @relation(fields: [cycle_id], references: [id], onDelete: SetNull)
-  created_by User            @relation("IssueCreatedBy", fields: [created_by_id], references: [id])
-  parent     Issue?          @relation("SubIssue", fields: [parent_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  children   Issue[]         @relation("SubIssue")
-  assignees        IssueAssignee[]
-  labels           IssueLabel[]
-  comments         Comment[]
-  modules          ModuleIssue[]
-  outgoing_links   IssueLink[]     @relation("IssueLinkSource")
-  incoming_links   IssueLink[]     @relation("IssueLinkTarget")
-  activities       ActivityLog[]
-  attachments      Attachment[]
-  notifications    Notification[]
+  workspace      Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  project        Project         @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  state          State           @relation(fields: [state_id], references: [id])
+  cycle          Cycle?          @relation(fields: [cycle_id], references: [id], onDelete: SetNull)
+  created_by     User            @relation("IssueCreatedBy", fields: [created_by_id], references: [id])
+  controller     User?           @relation("IssueController", fields: [controller_id], references: [id], onDelete: SetNull)
+  parent         Issue?          @relation("SubIssue", fields: [parent_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children       Issue[]         @relation("SubIssue")
+  assignees      IssueAssignee[]
+  labels         IssueLabel[]
+  comments       Comment[]
+  modules        ModuleIssue[]
+  outgoing_links IssueLink[]     @relation("IssueLinkSource")
+  incoming_links IssueLink[]     @relation("IssueLinkTarget")
+  activities     ActivityLog[]
+  attachments    Attachment[]
+  notifications  Notification[]
 
   @@unique([project_id, sequence_id])
   @@index([workspace_id])
@@ -338,12 +441,18 @@ model Issue {
   @@index([priority])
   @@index([due_date])
   @@index([deleted_at])
+  @@index([controller_id])
+  @@index([kind])
 }
 
 model IssueAssignee {
-  issue_id   String
-  user_id    String
-  created_at DateTime @default(now())
+  issue_id        String
+  user_id         String
+  // Ответственный исполнитель; the others are соисполнители (ADR-008).
+  is_primary      Boolean   @default(false)
+  // When the assignee confirmed they saw the assignment ("Ознакомлен", Ф5).
+  acknowledged_at DateTime?
+  created_at      DateTime  @default(now())
 
   issue Issue @relation(fields: [issue_id], references: [id], onDelete: Cascade)
   user  User  @relation(fields: [user_id], references: [id], onDelete: Cascade)
@@ -363,8 +472,8 @@ model Label {
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
 
-  workspace Workspace   @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
-  project   Project     @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  workspace Workspace    @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  project   Project      @relation(fields: [project_id], references: [id], onDelete: Cascade)
   issues    IssueLabel[]
 
   @@index([workspace_id])
@@ -435,9 +544,9 @@ model Module {
   created_at   DateTime     @default(now())
   updated_at   DateTime     @updatedAt
 
-  workspace Workspace    @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
-  project   Project      @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  lead      User?        @relation("ModuleLead", fields: [lead_id], references: [id])
+  workspace Workspace     @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  project   Project       @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  lead      User?         @relation("ModuleLead", fields: [lead_id], references: [id])
   issues    ModuleIssue[]
 
   @@index([workspace_id])
@@ -549,15 +658,15 @@ model Notification {
 // On creation a unique token is generated; the invitee follows a link to accept.
 // Accepted and expired invites are retained for audit purposes.
 model WorkspaceInvite {
-  id             String        @id @default(uuid())
-  workspace_id   String
-  invited_by_id  String
-  email          String
-  role           WorkspaceRole @default(member)
-  token          String        @unique @default(uuid())
-  expires_at     DateTime
-  accepted_at    DateTime?
-  created_at     DateTime      @default(now())
+  id            String        @id @default(uuid())
+  workspace_id  String
+  invited_by_id String
+  email         String
+  role          WorkspaceRole @default(member)
+  token         String        @unique @default(uuid())
+  expires_at    DateTime
+  accepted_at   DateTime?
+  created_at    DateTime      @default(now())
 
   workspace  Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
   invited_by User      @relation(fields: [invited_by_id], references: [id])

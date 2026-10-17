@@ -7,6 +7,7 @@ import {
   UpdateWorkspaceBodySchema,
   AddMemberBodySchema,
   ChangeMemberRoleBodySchema,
+  ListMembersQuerySchema,
   InviteMemberBodySchema,
 } from './schema.js';
 
@@ -64,7 +65,12 @@ export async function listMembersHandler(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
-  const members = await workspaceService.listMembers(request.server.prisma, request.workspace.id);
+  const query = ListMembersQuerySchema.parse(request.query ?? {});
+  const members = await workspaceService.listMembers(
+    request.server.prisma,
+    request.workspace.id,
+    query,
+  );
   reply.send(members);
 }
 

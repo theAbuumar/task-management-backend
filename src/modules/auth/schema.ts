@@ -28,9 +28,36 @@ export const RefreshBodySchema = z.object({
   refresh_token: z.string().min(1).optional(),
 });
 
+const nameField = z.string().trim().max(60);
+
 export const UpdateMeBodySchema = z.object({
   display_name: z.string().min(1).max(100).optional(),
   avatar_url: z.string().url().optional().nullable(),
+  // ФИО. When given without display_name, display_name is rebuilt as
+  // "Фамилия Имя Отчество".
+  last_name: nameField.optional().nullable(),
+  first_name: nameField.optional().nullable(),
+  middle_name: nameField.optional().nullable(),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^\+?[0-9 ()-]{5,20}$/, 'Phone may contain digits, spaces, (), - and a leading +')
+    .optional()
+    .nullable(),
+  locale: z.enum(['ru', 'en']).optional(),
+  timezone: z
+    .string()
+    .max(64)
+    .refine((tz) => {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: tz });
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'Unknown time zone')
+    .optional()
+    .nullable(),
 });
 
 // Email+password signup — same fields as register, but no invite_token (OTP flow).
@@ -161,6 +188,12 @@ const userShape = {
     email: { type: 'string', nullable: true },
     email_verified: { type: 'boolean' },
     display_name: { type: 'string' },
+    last_name: { type: 'string', nullable: true },
+    first_name: { type: 'string', nullable: true },
+    middle_name: { type: 'string', nullable: true },
+    phone: { type: 'string', nullable: true },
+    locale: { type: 'string' },
+    timezone: { type: 'string', nullable: true },
     avatar_url: { type: 'string', nullable: true },
     is_active: { type: 'boolean' },
     created_at: { type: 'string', format: 'date-time' },
@@ -606,13 +639,19 @@ export const updateMeRouteSchema: FastifySchema = {
   tags: ['Auth'],
   summary: 'Update the current authenticated user',
   description:
-    'Updates the current account’s mutable profile fields (`display_name`, `avatar_url`).',
+    'Updates the profile: full name (ФИО), phone, language, time zone, avatar. Setting the name parts without `display_name` rebuilds it as "Фамилия Имя Отчество".',
   security: [{ bearerAuth: [] }],
   body: {
     type: 'object',
     properties: {
       display_name: { type: 'string', minLength: 1, maxLength: 100 },
       avatar_url: { type: 'string', nullable: true },
+      last_name: { type: 'string', maxLength: 60, nullable: true },
+      first_name: { type: 'string', maxLength: 60, nullable: true },
+      middle_name: { type: 'string', maxLength: 60, nullable: true },
+      phone: { type: 'string', maxLength: 20, nullable: true },
+      locale: { type: 'string', enum: ['ru', 'en'] },
+      timezone: { type: 'string', maxLength: 64, nullable: true },
     },
   },
   response: responses({ 200: userShape }),

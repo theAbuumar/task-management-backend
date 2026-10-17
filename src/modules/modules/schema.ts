@@ -55,6 +55,7 @@ const progressShape = {
     backlog: { type: 'integer' },
     unstarted: { type: 'integer' },
     started: { type: 'integer' },
+    review: { type: 'integer' },
     completed: { type: 'integer' },
     cancelled: { type: 'integer' },
     completion_percentage: { type: 'number' },

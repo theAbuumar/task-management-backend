@@ -679,11 +679,27 @@ export async function updateMe(
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw AppError.notFound('User not found');
 
+  // Rebuild the rendered name from ФИО when the parts change without an explicit one.
+  const nameTouched =
+    body.last_name !== undefined || body.first_name !== undefined || body.middle_name !== undefined;
+  const last = body.last_name !== undefined ? body.last_name : user.last_name;
+  const first = body.first_name !== undefined ? body.first_name : user.first_name;
+  const middle = body.middle_name !== undefined ? body.middle_name : user.middle_name;
+  const rebuilt = [last, first, middle].filter((p) => p && p.trim()).join(' ');
+  const displayName =
+    body.display_name ?? (nameTouched && rebuilt ? rebuilt : undefined);
+
   const updated = await prisma.user.update({
     where: { id: userId },
     data: {
-      ...(body.display_name !== undefined && { display_name: body.display_name }),
+      ...(displayName !== undefined && { display_name: displayName }),
       ...(body.avatar_url !== undefined && { avatar_url: body.avatar_url }),
+      ...(body.last_name !== undefined && { last_name: body.last_name || null }),
+      ...(body.first_name !== undefined && { first_name: body.first_name || null }),
+      ...(body.middle_name !== undefined && { middle_name: body.middle_name || null }),
+      ...(body.phone !== undefined && { phone: body.phone || null }),
+      ...(body.locale !== undefined && { locale: body.locale }),
+      ...(body.timezone !== undefined && { timezone: body.timezone || null }),
     },
   });
 

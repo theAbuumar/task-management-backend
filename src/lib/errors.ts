@@ -31,7 +31,8 @@ export type ErrorCode =
   | 'ALREADY_MEMBER'
   | 'INVITE_EXPIRED'
   | 'INVITE_ALREADY_ACCEPTED'
-  | 'INVITE_EMAIL_MISMATCH';
+  | 'INVITE_EMAIL_MISMATCH'
+  | 'DEPARTMENT_CYCLE';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -60,6 +61,7 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
   INVITE_EXPIRED: 'The invitation has expired',
   INVITE_ALREADY_ACCEPTED: 'The invitation has already been accepted',
   INVITE_EMAIL_MISMATCH: 'The invitation was sent to a different email address',
+  DEPARTMENT_CYCLE: 'A department cannot be moved under itself or its own sub-department',
 };
 
 /**

@@ -23,6 +23,10 @@ const TRACKED_FIELDS = [
   'start_date',
   'due_date',
   'estimate_points',
+  'kind',
+  'controller_id',
+  'requires_review',
+  'basis',
 ] as const;
 
 /** Issue with assignees and labels included (the standard response shape). */
@@ -34,15 +38,34 @@ type IssueWithRelations = Prisma.IssueGetPayload<{
       };
     };
     labels: { include: { label: true } };
+    controller: { select: { id: true; email: true; display_name: true; avatar_url: true } };
   };
 }>;
 
+const USER_BRIEF = { id: true, email: true, display_name: true, avatar_url: true } as const;
+
 const INCLUDE_RELATIONS = {
   assignees: {
-    include: { user: { select: { id: true, email: true, display_name: true, avatar_url: true } } },
+    include: { user: { select: USER_BRIEF } },
+    // Primary (ответственный) first, then in assignment order.
+    orderBy: [{ is_primary: 'desc' }, { created_at: 'asc' }],
   },
   labels: { include: { label: true } },
-} as const;
+  controller: { select: USER_BRIEF },
+} satisfies Prisma.IssueInclude;
+
+/** The controller of an assignment must be a member of the workspace. */
+async function assertWorkspaceMember(
+  prisma: PrismaClient,
+  workspaceId: string,
+  userId: string,
+  field: string,
+): Promise<void> {
+  const member = await prisma.workspaceMember.findUnique({
+    where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } },
+  });
+  if (!member) throw AppError.badRequest(`${field} must be a member of this workspace`);
+}
 
 async function resolveProject(
   prisma: PrismaClient,
@@ -115,6 +138,8 @@ function buildWhere(projectId: string, query: IssueFilterQuery): Prisma.IssueWhe
     ...(query.module !== undefined && { modules: { some: { module_id: query.module } } }),
     ...(query.created_by !== undefined && { created_by_id: query.created_by }),
     ...(query.parent_id !== undefined && { parent_id: query.parent_id }),
+    ...(query.kind !== undefined && { kind: query.kind }),
+    ...(query.controller !== undefined && { controller_id: query.controller }),
     ...(query.search && {
       OR: [
         { title: { contains: query.search, mode: 'insensitive' as const } },
@@ -234,6 +259,18 @@ export async function createIssue(
       throw AppError.badRequest('Sub-issues cannot have sub-issues (single level only)');
   }
 
+  if (body.controller_id) {
+    await assertWorkspaceMember(prisma, workspaceId, body.controller_id, 'controller_id');
+  }
+  const assigneeIds = [...new Set(body.assignee_ids ?? [])];
+  if (body.primary_assignee_id && !assigneeIds.includes(body.primary_assignee_id)) {
+    throw AppError.badRequest('primary_assignee_id must be one of assignee_ids');
+  }
+  const primaryId = body.primary_assignee_id ?? assigneeIds[0];
+  // An assignment with a controller is reviewed by default (ADR-008).
+  const requiresReview =
+    body.requires_review ?? (body.kind === 'assignment' && Boolean(body.controller_id));
+
   const issue = await prisma.$transaction(async (tx) => {
     const sequenceId = await nextSequenceId(tx, projectId);
 
@@ -251,8 +288,16 @@ export async function createIssue(
         due_date: body.due_date ? new Date(body.due_date) : null,
         estimate_points: body.estimate_points ?? null,
         created_by_id: creatorId,
-        assignees: body.assignee_ids?.length
-          ? { createMany: { data: body.assignee_ids.map((uid) => ({ user_id: uid })) } }
+        kind: body.kind,
+        controller_id: body.controller_id ?? null,
+        requires_review: requiresReview,
+        basis: body.basis ?? null,
+        assignees: assigneeIds.length
+          ? {
+              createMany: {
+                data: assigneeIds.map((uid) => ({ user_id: uid, is_primary: uid === primaryId })),
+              },
+            }
           : undefined,
         labels: body.label_ids?.length
           ? { createMany: { data: body.label_ids.map((lid) => ({ label_id: lid })) } }
@@ -334,6 +379,16 @@ export async function updateIssue(
     if (!state) throw AppError.badRequest('state_id does not belong to this project');
   }
 
+  if (body.controller_id) {
+    await assertWorkspaceMember(prisma, workspaceId, body.controller_id, 'controller_id');
+  }
+  if (
+    body.primary_assignee_id &&
+    !before.assignees.some((a) => a.user_id === body.primary_assignee_id)
+  ) {
+    throw AppError.badRequest('primary_assignee_id must be an assignee of this issue');
+  }
+
   if (body.parent_id) {
     if (body.parent_id === issueId) throw AppError.badRequest('An issue cannot be its own parent');
     const parent = await prisma.issue.findFirst({
@@ -352,6 +407,17 @@ export async function updateIssue(
     : undefined;
 
   return prisma.$transaction(async (tx) => {
+    if (body.primary_assignee_id) {
+      await tx.issueAssignee.updateMany({
+        where: { issue_id: issueId },
+        data: { is_primary: false },
+      });
+      await tx.issueAssignee.update({
+        where: { issue_id_user_id: { issue_id: issueId, user_id: body.primary_assignee_id } },
+        data: { is_primary: true },
+      });
+    }
+
     const after = await tx.issue.update({
       where: { id: issueId },
       data: {
@@ -368,6 +434,10 @@ export async function updateIssue(
         }),
         ...(body.estimate_points !== undefined && { estimate_points: body.estimate_points }),
         ...(body.sort_order !== undefined && { sort_order: body.sort_order }),
+        ...(body.kind !== undefined && { kind: body.kind }),
+        ...(body.controller_id !== undefined && { controller_id: body.controller_id }),
+        ...(body.requires_review !== undefined && { requires_review: body.requires_review }),
+        ...(body.basis !== undefined && { basis: body.basis }),
         ...(completedAt !== undefined && { completed_at: completedAt }),
       },
       include: INCLUDE_RELATIONS,
@@ -439,7 +509,10 @@ export async function addAssignee(
   if (existing) throw AppError.conflict('User is already assigned to this issue');
 
   await prisma.$transaction(async (tx) => {
-    await tx.issueAssignee.create({ data: { issue_id: issueId, user_id: userId } });
+    // The first assignee of an issue becomes its primary (ответственный) one.
+    await tx.issueAssignee.create({
+      data: { issue_id: issueId, user_id: userId, is_primary: issue.assignees.length === 0 },
+    });
     await recordActivity(tx, {
       workspace_id: workspaceId,
       issue_id: issueId,
@@ -495,6 +568,19 @@ export async function removeAssignee(
     await tx.issueAssignee.delete({
       where: { issue_id_user_id: { issue_id: issueId, user_id: userId } },
     });
+    // Removing the primary assignee hands the role to the longest-standing co-assignee.
+    if (existing.is_primary) {
+      const next = await tx.issueAssignee.findFirst({
+        where: { issue_id: issueId },
+        orderBy: { created_at: 'asc' },
+      });
+      if (next) {
+        await tx.issueAssignee.update({
+          where: { issue_id_user_id: { issue_id: issueId, user_id: next.user_id } },
+          data: { is_primary: true },
+        });
+      }
+    }
     await recordActivity(tx, {
       workspace_id: workspaceId,
       issue_id: issueId,

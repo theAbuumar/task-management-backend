@@ -5,6 +5,7 @@ const PRIORITIES = ['none', 'low', 'medium', 'high', 'urgent'] as const;
 const SORT_FIELDS = ['created_at', 'updated_at', 'priority', 'due_date', 'sort_order'] as const;
 const SORT_ORDERS = ['asc', 'desc'] as const;
 const GROUP_FIELDS = ['state', 'priority', 'assignee'] as const;
+const KINDS = ['task', 'assignment'] as const;
 
 export const CreateIssueBodySchema = z.object({
   title: z.string().min(1).max(500),
@@ -17,6 +18,13 @@ export const CreateIssueBodySchema = z.object({
   start_date: z.string().datetime().optional().nullable(),
   due_date: z.string().datetime().optional().nullable(),
   estimate_points: z.number().min(0).optional().nullable(),
+  // Поручение fields (ADR-008).
+  kind: z.enum(KINDS).default('task'),
+  controller_id: z.string().uuid().optional().nullable(),
+  requires_review: z.boolean().optional(),
+  basis: z.string().max(500).optional().nullable(),
+  // Ответственный исполнитель — one of assignee_ids (defaults to the first).
+  primary_assignee_id: z.string().uuid().optional(),
 });
 
 export const UpdateIssueBodySchema = z.object({
@@ -29,6 +37,12 @@ export const UpdateIssueBodySchema = z.object({
   due_date: z.string().datetime().optional().nullable(),
   estimate_points: z.number().min(0).optional().nullable(),
   sort_order: z.number().optional(),
+  kind: z.enum(KINDS).optional(),
+  controller_id: z.string().uuid().optional().nullable(),
+  requires_review: z.boolean().optional(),
+  basis: z.string().max(500).optional().nullable(),
+  // Must already be an assignee; becomes the only primary one.
+  primary_assignee_id: z.string().uuid().optional(),
 });
 
 export const IssueFilterQuerySchema = z.object({
@@ -40,6 +54,8 @@ export const IssueFilterQuerySchema = z.object({
   module: z.string().uuid().optional(),
   created_by: z.string().uuid().optional(),
   parent_id: z.string().uuid().optional(),
+  kind: z.enum(KINDS).optional(),
+  controller: z.string().uuid().optional(),
   search: z.string().optional(),
   due_before: z.string().datetime().optional(),
   due_after: z.string().datetime().optional(),
@@ -85,11 +101,17 @@ const issueShape = {
     due_date: { type: 'string', nullable: true },
     completed_at: { type: 'string', nullable: true },
     created_by_id: { type: 'string' },
+    kind: { type: 'string', enum: KINDS },
+    controller_id: { type: 'string', nullable: true },
+    requires_review: { type: 'boolean' },
+    basis: { type: 'string', nullable: true },
+    controller: { type: 'object', nullable: true, additionalProperties: true },
     sort_order: { type: 'number' },
     created_at: { type: 'string', format: 'date-time' },
     updated_at: { type: 'string', format: 'date-time' },
-    assignees: { type: 'array', items: { type: 'object' } },
-    labels: { type: 'array', items: { type: 'object' } },
+    // Items: { user_id, is_primary, acknowledged_at, user }.
+    assignees: { type: 'array', items: { type: 'object', additionalProperties: true } },
+    labels: { type: 'array', items: { type: 'object', additionalProperties: true } },
   },
 } as const;
 
@@ -110,6 +132,8 @@ export const listIssuesSchema: FastifySchema = {
       module: { type: 'string', format: 'uuid' },
       created_by: { type: 'string', format: 'uuid' },
       parent_id: { type: 'string' },
+      kind: { type: 'string', enum: KINDS },
+      controller: { type: 'string', format: 'uuid' },
       search: { type: 'string' },
       due_before: { type: 'string' },
       due_after: { type: 'string' },
@@ -165,6 +189,11 @@ export const createIssueSchema: FastifySchema = {
       start_date: { type: 'string', nullable: true },
       due_date: { type: 'string', nullable: true },
       estimate_points: { type: 'number', nullable: true },
+      kind: { type: 'string', enum: KINDS },
+      controller_id: { type: 'string', format: 'uuid', nullable: true },
+      requires_review: { type: 'boolean' },
+      basis: { type: 'string', maxLength: 500, nullable: true },
+      primary_assignee_id: { type: 'string', format: 'uuid' },
     },
   },
   response: { 201: issueShape },
@@ -193,6 +222,11 @@ export const updateIssueSchema: FastifySchema = {
       due_date: { type: 'string', nullable: true },
       estimate_points: { type: 'number', nullable: true },
       sort_order: { type: 'number' },
+      kind: { type: 'string', enum: KINDS },
+      controller_id: { type: 'string', format: 'uuid', nullable: true },
+      requires_review: { type: 'boolean' },
+      basis: { type: 'string', maxLength: 500, nullable: true },
+      primary_assignee_id: { type: 'string', format: 'uuid' },
     },
   },
   response: { 200: issueShape },

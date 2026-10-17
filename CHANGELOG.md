@@ -30,6 +30,71 @@
 
 ---
 
+## 2026-10-17 — Ф3 (бэк): доменная модель университета — оргструктура, ФИО, поручения с контролёром, видимость проектов, аватары и логотипы
+**Фаза:** Ф3 (+ 2.B1) · **Тип:** новая функция · **Ветка:** `phase-3/domain`. В `main` не влита, пока не подтверждён порядок миграций на проде.
+**Что изменено:**
+- **3.B1** Две миграции:
+  - `enum_review_and_notification_types`: в `StateGroup` добавлен `review` (перед `completed`), `NotificationType` расширен до полного списка ADR-020;
+  - `university_domain`: модель `Department`; поля ФИО, `phone`, `locale`, `timezone` у `User`; `short_name`, `description`, `logo_url`, `timezone`, `locale`, `settings` у `Workspace`; `department_id` и `position` у `WorkspaceMember`; `visibility`, `status`, `start_date`, `target_date`, `department_id`, `icon`, `color`, `deleted_at` у `Project`; `kind`, `controller_id`, `requires_review`, `basis` у `Issue`; `is_primary` и `acknowledged_at` у `IssueAssignee`.
+  - Перенос данных: каждому проекту добавлено состояние «На проверке», стандартные состояния переименованы на русский, первый исполнитель задачи стал ответственным. Проверено на временной базе с тестовыми данными.
+  - Новые проекты получают состояния «Бэклог, К выполнению, В работе, На проверке, Готово, Отменено». Прогресс этапов и модулей считает `review` отдельно.
+- **3.B2** Модуль подразделений `/workspaces/:slug/departments`:
+  - список плоский или деревом (`?tree=true`);
+  - создание, изменение и удаление — только admin;
+  - руководитель обязан быть участником пространства;
+  - защита от циклов (`DEPARTMENT_CYCLE`);
+  - при удалении люди, проекты и дочерние подразделения поднимаются на уровень выше.
+- **3.B3** Участники:
+  - `PATCH /workspaces/:slug/members/:userId` принимает `role`, `department_id` и `position`; подразделение и должность можно задать и владельцу, и себе;
+  - `GET .../members?department=&subtree=&search=`;
+  - в ответе ФИО, телефон и подразделение.
+- **3.B4** Профиль: `PATCH /auth/me` принимает `last_name`, `first_name`, `middle_name`, `phone`, `locale` и `timezone` (проверка IANA). Если изменились части ФИО, `display_name` пересобирается как «Фамилия Имя Отчество».
+- **3.B5** Аватары и логотипы:
+  - `POST /auth/me/avatar` и `POST /workspaces/:slug/logo` (admin) выдают presigned-загрузку и постоянную ссылку `/api/v1/files/avatars|logos/...`;
+  - публичный `GET /api/v1/files/*` перенаправляет на свежую presigned-ссылку и отдаёт только `avatars/` и `logos/`;
+  - разрешены только png, jpeg и webp до 2 МБ.
+- **3.B6** Проекты:
+  - новые поля при создании и изменении;
+  - `member_ids` при создании;
+  - фильтры `status`, `department` и `include_archived`;
+  - в ответе `lead`, `department` и `stats { members, issues, open_issues }`.
+- **3.B7** Задачи:
+  - новые поля `kind`, `controller_id`, `requires_review` и `basis`;
+  - `primary_assignee_id` (ответственный исполнитель);
+  - у поручения с контролёром `requires_review` включён по умолчанию;
+  - контролёр обязан быть участником пространства;
+  - первый назначенный становится ответственным, при удалении ответственного роль переходит следующему;
+  - фильтры `kind` и `controller`;
+  - изменения новых полей пишутся в историю.
+- **3.B8** Удаление проекта теперь мягкое (`deleted_at`). Удалённые проекты не видны нигде.
+- **3.B9** Приватные проекты проверяются в одном месте — `requireWorkspaceMember` для всех маршрутов `/projects/:projectId/...`. Такие проекты видят только их участники и admin, всем остальным отвечает 404. Список проектов тоже фильтруется.
+- **2.B1** `GET /workspaces/:slug/issues/by-key/:key` (например, `ACCR-12`) для глубоких ссылок, с учётом видимости.
+- **3.B10** Обновлены Swagger-схемы ответов, открыты вложенные объекты (`additionalProperties`), сид использует общие `DEFAULT_STATES`.
+**Файлы:**
+- новые: `src/modules/departments/*`, `src/modules/media/routes.ts`, `src/modules/issues/workspace-routes.ts`, `tests/university-domain.test.ts`, две миграции в `src/prisma/migrations/`;
+- изменены: `src/prisma/schema.prisma`, `src/plugins/workspace-hook.ts`, `src/modules/{projects,issues,workspaces,auth,cycles,modules}/*`, `src/lib/errors.ts`, `src/app.ts`, `src/prisma/seed.ts`.
+**API:**
+- новые:
+  - `GET/POST /workspaces/:slug/departments`;
+  - `PATCH/DELETE /workspaces/:slug/departments/:id`;
+  - `POST /auth/me/avatar`;
+  - `POST /workspaces/:slug/logo`;
+  - `GET /files/*`;
+  - `GET /workspaces/:slug/issues/by-key/:key`.
+- новые поля в запросах и ответах: `/auth/me`, `/workspaces`, `/workspaces/:slug/members`, `/projects`, `/issues`.
+- изменения поведения:
+  - `DELETE` проекта — мягкое удаление;
+  - приватные проекты отвечают 404 тем, кому они не видны;
+  - в `StateGroup` появилось значение `review`.
+- новый код ошибки: `DEPARTMENT_CYCLE`.
+**БД:** `20261017103704_enum_review_and_notification_types`, `20261017103854_university_domain` (с переносом данных).
+**Конфигурация:** —
+**Тесты:** `tests/university-domain.test.ts` (15 сценариев): дерево подразделений, права, циклы, удаление; участники; ФИО; поля проекта; приватность; мягкое удаление; поля поручения; ответственный; фильтры; поиск по ключу; аватар и логотип.
+**Как проверить:** `NODE_ENV=test DATABASE_URL=<локальная БД> npx vitest run`
+**Совместимость:**
+- Фронт: использовать новые поля. `StateGroup` теперь может быть `review`, его нужно обрабатывать в доске, бейджах и «Мои задачи».
+- Прод: перед деплоем нужно применить миграции командой `prisma migrate deploy`.
+
 ## 2026-10-17 — Ф1 (бэк): ссылки в письмах, вход по коду, сессии, helmet, выход из пространства, коды ошибок
 **Фаза:** Ф1 · **Тип:** исправление, новая функция, безопасность
 **Что изменено:**

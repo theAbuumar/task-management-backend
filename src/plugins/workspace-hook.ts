@@ -57,7 +57,31 @@ export function requireWorkspaceMember(
 
     request.workspace = workspace;
     request.workspaceMember = member;
+
+    // Every route under `/projects/:projectId/...` (issues, comments, cycles,
+    // attachments…) inherits the project's visibility here, in one place: a
+    // deleted project is gone, and a private one is visible only to its members
+    // and to workspace admins (ADR-007 / Ф3 3.B9). Hidden = 404, not 403.
+    const projectId = (request.params as Record<string, string>).projectId;
+    if (projectId) {
+      const project = await request.server.prisma.project.findFirst({
+        where: { id: projectId, workspace_id: workspace.id, deleted_at: null },
+        select: { id: true, visibility: true },
+      });
+      if (!project) throw AppError.notFound('Project not found');
+      if (project.visibility === 'private' && ROLE_RANK[member.role] < ROLE_RANK.admin) {
+        const projectMember = await request.server.prisma.projectMember.findUnique({
+          where: { project_id_user_id: { project_id: project.id, user_id: request.userId } },
+        });
+        if (!projectMember) throw AppError.notFound('Project not found');
+      }
+    }
   };
+}
+
+/** True when the member may see private projects they don't belong to. */
+export function seesAllProjects(member: WorkspaceMember): boolean {
+  return ROLE_RANK[member.role] >= ROLE_RANK.admin;
 }
 
 async function workspacePlugin(app: FastifyInstance): Promise<void> {

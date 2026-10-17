@@ -11,6 +11,7 @@ export interface CycleProgress {
   backlog: number;
   unstarted: number;
   started: number;
+  review: number;
   completed: number;
   cancelled: number;
   completion_percentage: number;
@@ -112,6 +113,7 @@ export async function getCycle(
     backlog: 0,
     unstarted: 0,
     started: 0,
+    review: 0,
     completed: 0,
     cancelled: 0,
     completion_percentage: 0,

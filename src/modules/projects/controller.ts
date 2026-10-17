@@ -4,13 +4,20 @@ import {
   CreateProjectBodySchema,
   UpdateProjectBodySchema,
   AddProjectMemberBodySchema,
+  ListProjectsQuerySchema,
 } from './schema.js';
 
 export async function listProjectsHandler(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
-  const projects = await projectService.listProjects(request.server.prisma, request.workspace.id);
+  const query = ListProjectsQuerySchema.parse(request.query ?? {});
+  const projects = await projectService.listProjects(
+    request.server.prisma,
+    request.workspace.id,
+    request.workspaceMember,
+    query,
+  );
   reply.send(projects);
 }
 

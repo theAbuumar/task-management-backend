@@ -2,12 +2,14 @@ import type { PrismaClient, Workspace, WorkspaceMember, WorkspaceInvite } from '
 import { AppError } from '../../lib/errors.js';
 import { sendInviteEmail } from '../../lib/email.js';
 import { frontendUrl } from '../../lib/urls.js';
+import { departmentSubtreeIds } from '../departments/service.js';
 import type {
   CreateWorkspaceBody,
   UpdateWorkspaceBody,
   AddMemberBody,
   ChangeMemberRoleBody,
   InviteMemberBody,
+  ListMembersQuery,
 } from './schema.js';
 
 export async function listWorkspaces(prisma: PrismaClient, userId: string): Promise<Workspace[]> {
@@ -28,7 +30,15 @@ export async function createWorkspace(
 
   return prisma.$transaction(async (tx) => {
     const workspace = await tx.workspace.create({
-      data: { name: body.name, slug: body.slug, owner_id: userId },
+      data: {
+        name: body.name,
+        slug: body.slug,
+        owner_id: userId,
+        short_name: body.short_name ?? null,
+        description: body.description ?? null,
+        ...(body.timezone && { timezone: body.timezone }),
+        ...(body.locale && { locale: body.locale }),
+      },
     });
     // Creator gets the owner role automatically.
     await tx.workspaceMember.create({
@@ -55,6 +65,11 @@ export async function updateWorkspace(
     data: {
       ...(body.name !== undefined && { name: body.name }),
       ...(body.slug !== undefined && { slug: body.slug }),
+      ...(body.short_name !== undefined && { short_name: body.short_name }),
+      ...(body.description !== undefined && { description: body.description }),
+      ...(body.logo_url !== undefined && { logo_url: body.logo_url }),
+      ...(body.timezone !== undefined && { timezone: body.timezone }),
+      ...(body.locale !== undefined && { locale: body.locale }),
     },
   });
 }
@@ -65,13 +80,47 @@ export async function deleteWorkspace(prisma: PrismaClient, workspaceId: string)
 
 // ─── Members ──────────────────────────────────────────────────────────────────
 
+const MEMBER_INCLUDE = {
+  user: {
+    select: {
+      id: true,
+      email: true,
+      display_name: true,
+      last_name: true,
+      first_name: true,
+      middle_name: true,
+      phone: true,
+      avatar_url: true,
+    },
+  },
+  department: { select: { id: true, name: true, short_name: true } },
+} as const;
+
 export async function listMembers(
   prisma: PrismaClient,
   workspaceId: string,
+  query: ListMembersQuery = {},
 ): Promise<WorkspaceMember[]> {
+  const departmentIds = query.department
+    ? query.subtree === false
+      ? [query.department]
+      : await departmentSubtreeIds(prisma, workspaceId, query.department)
+    : undefined;
+  const search = query.search?.trim();
+
   return prisma.workspaceMember.findMany({
-    where: { workspace_id: workspaceId },
-    include: { user: { select: { id: true, email: true, display_name: true, avatar_url: true } } },
+    where: {
+      workspace_id: workspaceId,
+      ...(departmentIds && { department_id: { in: departmentIds } }),
+      ...(search && {
+        OR: [
+          { user: { display_name: { contains: search, mode: 'insensitive' as const } } },
+          { user: { email: { contains: search, mode: 'insensitive' as const } } },
+          { position: { contains: search, mode: 'insensitive' as const } },
+        ],
+      }),
+    },
+    include: MEMBER_INCLUDE,
     orderBy: { created_at: 'asc' },
   });
 }
@@ -93,7 +142,7 @@ export async function addMember(
 
   return prisma.workspaceMember.create({
     data: { workspace_id: workspaceId, user_id: body.user_id, role: body.role },
-    include: { user: { select: { id: true, email: true, display_name: true, avatar_url: true } } },
+    include: MEMBER_INCLUDE,
   });
 }
 
@@ -109,18 +158,30 @@ export async function changeMemberRole(
   });
   if (!member) throw AppError.notFound('Member not found');
 
-  // Cannot change the role of the workspace owner.
-  if (member.role === 'owner') throw AppError.forbidden('Cannot change the workspace owner role');
+  if (body.role !== undefined && body.role !== member.role) {
+    // Cannot change the role of the workspace owner.
+    if (member.role === 'owner') throw AppError.forbidden('Cannot change the workspace owner role');
+    // Cannot demote yourself via this endpoint.
+    if (targetUserId === requesterId) {
+      throw AppError.forbidden('Cannot change your own role');
+    }
+  }
 
-  // Cannot demote yourself via this endpoint.
-  if (targetUserId === requesterId) {
-    throw AppError.forbidden('Cannot change your own role');
+  if (body.department_id) {
+    const department = await prisma.department.findFirst({
+      where: { id: body.department_id, workspace_id: workspaceId },
+    });
+    if (!department) throw AppError.badRequest('department_id does not belong to this workspace');
   }
 
   return prisma.workspaceMember.update({
     where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: targetUserId } },
-    data: { role: body.role },
-    include: { user: { select: { id: true, email: true, display_name: true, avatar_url: true } } },
+    data: {
+      ...(body.role !== undefined && member.role !== 'owner' && { role: body.role }),
+      ...(body.department_id !== undefined && { department_id: body.department_id }),
+      ...(body.position !== undefined && { position: body.position || null }),
+    },
+    include: MEMBER_INCLUDE,
   });
 }
 

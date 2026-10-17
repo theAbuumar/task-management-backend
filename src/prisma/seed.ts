@@ -9,6 +9,7 @@
 
 import { PrismaClient, type StateGroup } from '@prisma/client';
 import { hashSecret } from '../lib/password.js';
+import { DEFAULT_STATES } from '../modules/projects/service.js';
 
 const prisma = new PrismaClient();
 
@@ -16,32 +17,9 @@ const prisma = new PrismaClient();
 const DEMO_EMAIL = 'demo@taskflow.local';
 const DEMO_PASSWORD = 'demo-password-123';
 
-/** Default workflow states — mirrors the set every real project gets on creation. */
-const DEFAULT_STATES = [
-  {
-    name: 'Backlog',
-    color: '#6B7280',
-    group: 'backlog' as StateGroup,
-    order: 0,
-    is_default: false,
-  },
-  { name: 'Todo', color: '#374151', group: 'unstarted' as StateGroup, order: 1, is_default: true },
-  {
-    name: 'In Progress',
-    color: '#3B82F6',
-    group: 'started' as StateGroup,
-    order: 2,
-    is_default: false,
-  },
-  { name: 'Done', color: '#10B981', group: 'completed' as StateGroup, order: 3, is_default: false },
-  {
-    name: 'Cancelled',
-    color: '#EF4444',
-    group: 'cancelled' as StateGroup,
-    order: 4,
-    is_default: false,
-  },
-];
+// Default workflow states — the same set every real project gets on creation
+// (Russian names + the "На проверке" review step).
+
 
 /** A day offset from now, as a Date (negative = past). */
 function daysFromNow(days: number): Date {
