@@ -13,6 +13,7 @@ import type {
 import { expandDepartments, inDepartmentsWhere, visibleIssuesWhere } from './scope.js';
 import { distributionProgress, type DistributionProgress } from './distribution-progress.js';
 import { deliverIssueEvent } from '../../lib/deliver.js';
+import { issueUrl } from '../../lib/urls.js';
 import { addDays, localDate, startOfLocalDay } from '../../lib/tz.js';
 import {
   OPEN_GROUPS,
@@ -916,7 +917,7 @@ export async function notifyIssueRecipients(
   const [project, actor, telegramIdentities] = await Promise.all([
     prisma.project.findUnique({
       where: { id: params.projectId },
-      select: { name: true, identifier: true },
+      select: { name: true, identifier: true, workspace: { select: { slug: true } } },
     }),
     prisma.user.findUnique({ where: { id: params.actorId }, select: { display_name: true } }),
     // Only resolve Telegram links when the bot is actually configured.
@@ -933,8 +934,10 @@ export async function notifyIssueRecipients(
   ]);
   if (!project || !actor) return;
 
+  const issueKey = `${project.identifier}-${params.issue.sequence_id}`;
   const opts = {
-    issueKey: `${project.identifier}-${params.issue.sequence_id}`,
+    issueKey,
+    issueUrl: issueUrl(project.workspace.slug, issueKey),
     issueTitle: params.issue.title,
     projectName: project.name,
     actorName: actor.display_name,

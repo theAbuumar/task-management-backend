@@ -3,7 +3,7 @@
 // Covers the per-recipient fan-out added to the issues service:
 //   - creating a task WITH assignees notifies each assignee ("assigned"),
 //   - creating a task with NO assignees notifies every PROJECT member (the "task for
-//     everyone" case, "created a task"),
+//     everyone" case, "создал(а) задачу"),
 //   - each recipient gets exactly one channel: Telegram if linked, else email fallback,
 //   - the actor is never notified about their own action.
 // The Bot API is mocked at the `fetch` boundary; the mailer is mocked at the module
@@ -169,7 +169,9 @@ describe('Notifications on task create/assign', () => {
     const toTg = sentMessages(fetchMock).filter((m) => m.chat_id === TG_ID);
     expect(toTg).toHaveLength(1);
     expect(toTg[0]!.text).toContain('Fix login bug');
-    expect(toTg[0]!.text).toContain('assigned you a task');
+    expect(toTg[0]!.text).toContain('назначил(а) вам задачу');
+    // 2.B2: the message deep-links to the issue on the frontend.
+    expect(toTg[0]!.text).toMatch(new RegExp(`/w/${workspaceSlug}/browse/[A-Z0-9]+-\\d+`));
     // The recipient has Telegram, so no email fallback fires.
     expect(sendMailMock).not.toHaveBeenCalled();
   });
@@ -187,7 +189,7 @@ describe('Notifications on task create/assign', () => {
     const toTg = sentMessages(fetchMock).filter((m) => m.chat_id === TG_ID);
     expect(toTg).toHaveLength(1);
     expect(toTg[0]!.text).toContain('Team standup notes');
-    expect(toTg[0]!.text).toContain('created a task');
+    expect(toTg[0]!.text).toContain('создал(а) задачу');
   });
 
   it('assigning a Telegram-linked user later messages them', async () => {
@@ -215,7 +217,7 @@ describe('Notifications on task create/assign', () => {
     const toTg = sentMessages(fetchMock).filter((m) => m.chat_id === TG_ID);
     expect(toTg).toHaveLength(1);
     expect(toTg[0]!.text).toContain('Ship release');
-    expect(toTg[0]!.text).toContain('assigned you a task');
+    expect(toTg[0]!.text).toContain('назначил(а) вам задачу');
   });
 
   it('a task assigned to an email-only user (no Telegram) emails them instead', async () => {
@@ -236,6 +238,12 @@ describe('Notifications on task create/assign', () => {
     const toOwner = mail.find((m) => m.to === OWNER_EMAIL);
     expect(toOwner).toBeDefined();
     expect(toOwner!.subject).toContain('Email fallback task');
+    const body = (
+      sendMailMock.mock.calls.find((c) => (c[0] as { to: string }).to === OWNER_EMAIL)![0] as {
+        text: string;
+      }
+    ).text;
+    expect(body).toContain(`/w/${workspaceSlug}/browse/`);
   });
 
   it('never notifies the actor about their own task', async () => {

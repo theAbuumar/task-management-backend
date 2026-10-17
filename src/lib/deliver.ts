@@ -6,7 +6,7 @@
 
 import type { PrismaClient } from '@prisma/client';
 import { sendMail } from './mailer.js';
-import { frontendUrl } from './urls.js';
+import { issueUrl } from './urls.js';
 import { pluralize } from './plural.js';
 import { sendBotMessage, telegramConfigured } from '../modules/auth/telegram.service.js';
 
@@ -95,7 +95,7 @@ export async function deliverIssueEvent(
     const fmt = (x?: Date | null) =>
       x ? x.toLocaleDateString('ru-RU', { timeZone: issue.workspace.timezone, day: 'numeric', month: 'long' }) : '—';
     const head = headline(params.kind, actor?.display_name ?? 'Система', key, params.details ?? {}, fmt);
-    const link = frontendUrl(`/w/${issue.workspace.slug}/browse/${key}`);
+    const link = issueUrl(issue.workspace.slug, key);
     const text = `${head}\n${issue.title}\n\n${link}`;
 
     const telegram = telegramConfigured()

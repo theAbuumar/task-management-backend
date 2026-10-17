@@ -73,6 +73,8 @@ export interface IssueNotificationEmailPayload {
   actorName: string;
   /** true when assigned to the recipient; false for the "new task for everyone" broadcast. */
   assigned: boolean;
+  /** Deep link `FRONTEND_URL/w/:slug/browse/:key` (2.B2). */
+  issueUrl: string;
 }
 
 /**
@@ -92,7 +94,13 @@ export async function sendIssueNotificationEmail(
   await sendMail({
     to: payload.to,
     subject,
-    text: [lead, '', `${payload.issueKey}  ${payload.issueTitle}`].join('\n'),
+    text: [
+      lead,
+      '',
+      `${payload.issueKey}  ${payload.issueTitle}`,
+      '',
+      `Открыть задачу: ${payload.issueUrl}`,
+    ].join('\n'),
   });
 }
 

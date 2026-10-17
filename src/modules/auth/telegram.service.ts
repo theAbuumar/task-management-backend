@@ -160,6 +160,8 @@ export async function sendWorkspaceInvitePrompt(
 export interface IssueNotificationOptions {
   /** Human-readable issue key, e.g. "MOB-123". */
   issueKey: string;
+  /** Deep link `FRONTEND_URL/w/:slug/browse/:key` (2.B2). */
+  issueUrl: string;
   issueTitle: string;
   projectName: string;
   /** Who created/assigned the task — shown so the recipient knows the source. */
@@ -181,11 +183,11 @@ export async function sendIssueNotification(
   opts: IssueNotificationOptions,
 ): Promise<void> {
   const headline = opts.assigned
-    ? `📋 ${opts.actorName} assigned you a task`
-    : `🆕 ${opts.actorName} created a task in ${opts.projectName}`;
+    ? `📋 ${opts.actorName} назначил(а) вам задачу`
+    : `🆕 ${opts.actorName} создал(а) задачу в проекте «${opts.projectName}»`;
   await callBotApi('sendMessage', {
     chat_id: chatId,
-    text: [headline, '', `${opts.issueKey}  ${opts.issueTitle}`].join('\n'),
+    text: [headline, '', `${opts.issueKey}  ${opts.issueTitle}`, '', opts.issueUrl].join('\n'),
   });
 }
 
