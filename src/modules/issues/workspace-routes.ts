@@ -1,16 +1,30 @@
 // Workspace-level issue routes (`/api/v1/workspaces/:workspaceSlug/issues/...`),
-// i.e. not tied to a project in the URL. Today: resolve a human key like
-// `ACCR-12` for deep links from emails / Telegram (Ф2 2.B1).
+// i.e. not tied to a project in the URL: the list across all visible projects
+// (Ф7 7.B1) and resolving a human key like `ACCR-12` for deep links from emails /
+// Telegram (Ф2 2.B1).
 
 import type { FastifyInstance } from 'fastify';
 import { authenticate } from '../../plugins/auth-hook.js';
 import { requireWorkspaceMember, seesAllProjects } from '../../plugins/workspace-hook.js';
 import { AppError } from '../../lib/errors.js';
 import * as issueService from './service.js';
+import { listWorkspaceIssuesSchema, WorkspaceIssueQuerySchema } from './schema.js';
 
 const KEY_PATTERN = /^([A-Za-z0-9]{1,10})-(\d{1,9})$/;
 
 export async function workspaceIssueRoutes(app: FastifyInstance): Promise<void> {
+  app.get(
+    '/',
+    { schema: listWorkspaceIssuesSchema, preHandler: [authenticate, requireWorkspaceMember()] },
+    async (request) =>
+      issueService.listWorkspaceIssues(
+        app.prisma,
+        request.workspace,
+        request.workspaceMember,
+        WorkspaceIssueQuerySchema.parse(request.query),
+      ),
+  );
+
   app.get(
     '/by-key/:key',
     {

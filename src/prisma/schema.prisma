@@ -332,6 +332,7 @@ model Department {
   head      User?             @relation("DepartmentHead", fields: [head_id], references: [id], onDelete: SetNull)
   members   WorkspaceMember[]
   projects  Project[]
+  issues    Issue[]
 
   @@index([workspace_id])
   @@index([parent_id])
@@ -427,6 +428,10 @@ model Issue {
   requires_review Boolean       @default(false)
   // What the assignment is based on: "Протокол ректората №5 от 12.10.2026".
   basis           String?
+  // Рассылка подразделениям (6.B1): the parent is marked `is_distribution`, each
+  // child carries the department it is addressed to (its head is the primary assignee).
+  is_distribution Boolean       @default(false)
+  department_id   String?
   sort_order      Float         @default(0)
   created_at      DateTime      @default(now())
   updated_at      DateTime      @updatedAt
@@ -438,6 +443,7 @@ model Issue {
   cycle             Cycle?                  @relation(fields: [cycle_id], references: [id], onDelete: SetNull)
   created_by        User                    @relation("IssueCreatedBy", fields: [created_by_id], references: [id])
   controller        User?                   @relation("IssueController", fields: [controller_id], references: [id], onDelete: SetNull)
+  department        Department?             @relation(fields: [department_id], references: [id], onDelete: SetNull)
   parent            Issue?                  @relation("SubIssue", fields: [parent_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children          Issue[]                 @relation("SubIssue")
   assignees         IssueAssignee[]
@@ -466,6 +472,8 @@ model Issue {
   @@index([deleted_at])
   @@index([controller_id])
   @@index([kind])
+  @@index([department_id])
+  @@index([workspace_id, completed_at])
 }
 
 model IssueAssignee {

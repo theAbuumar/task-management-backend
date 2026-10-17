@@ -1,10 +1,17 @@
-import type { PrismaClient, Issue, Prisma } from '@prisma/client';
+import type { PrismaClient, Issue, Prisma, StateGroup, WorkspaceMember } from '@prisma/client';
 import { AppError } from '../../lib/errors.js';
 import { recordActivity, recordActivities, ACTIVITY_ACTIONS } from '../../lib/activity.js';
 import { notify } from '../../lib/notifications.js';
 import { sendIssueNotification, telegramConfigured } from '../auth/telegram.service.js';
 import { sendIssueNotificationEmail } from '../../lib/email.js';
-import type { CreateIssueBody, UpdateIssueBody, IssueFilterQuery } from './schema.js';
+import type {
+  CreateIssueBody,
+  UpdateIssueBody,
+  IssueFilterQuery,
+  WorkspaceIssueQuery,
+} from './schema.js';
+import { expandDepartments, inDepartmentsWhere, visibleIssuesWhere } from './scope.js';
+import { distributionProgress, type DistributionProgress } from './distribution-progress.js';
 import { deliverIssueEvent } from '../../lib/deliver.js';
 import { addDays, localDate, startOfLocalDay } from '../../lib/tz.js';
 import {
@@ -56,6 +63,7 @@ type IssueWithRelations = Prisma.IssueGetPayload<{
     };
     labels: { include: { label: true } };
     controller: { select: { id: true; email: true; display_name: true; avatar_url: true } };
+    department: { select: { id: true; name: true; short_name: true } };
     state: { select: { id: true; name: true; group: true; color: true } };
     _count: {
       select: {
@@ -68,7 +76,7 @@ type IssueWithRelations = Prisma.IssueGetPayload<{
 
 const USER_BRIEF = { id: true, email: true, display_name: true, avatar_url: true } as const;
 
-const INCLUDE_RELATIONS = {
+export const INCLUDE_RELATIONS = {
   assignees: {
     include: { user: { select: USER_BRIEF } },
     // Primary (ответственный) first, then in assignment order.
@@ -76,6 +84,7 @@ const INCLUDE_RELATIONS = {
   },
   labels: { include: { label: true } },
   controller: { select: USER_BRIEF },
+  department: { select: { id: true, name: true, short_name: true } },
   state: { select: { id: true, name: true, group: true, color: true } },
   _count: {
     select: {
@@ -123,7 +132,7 @@ async function resolveIssue(
 }
 
 /** Next sequence_id for a project — use inside a serializable transaction. */
-async function nextSequenceId(
+export async function nextSequenceId(
   prisma: Prisma.TransactionClient,
   projectId: string,
 ): Promise<number> {
@@ -149,10 +158,13 @@ function dateRange(after?: string, before?: string): Prisma.DateTimeFilter | und
   };
 }
 
+/** Filters shared by the project list and the workspace-wide list. */
+type FilterQuery = Omit<IssueFilterQuery, 'group_by'>;
+
 /** Translate the validated filter query into a Prisma `where` clause. */
 export function buildWhere(
   projectId: string | undefined,
-  query: IssueFilterQuery,
+  query: FilterQuery,
   viewer?: IssueViewer,
 ): Prisma.IssueWhereInput {
   const me = (id: string | undefined) => (id === 'me' ? viewer?.userId : id);
@@ -162,6 +174,8 @@ export function buildWhere(
   const labels = normalizeArrayParam(query.label);
   const dueDate = dateRange(query.due_after, query.due_before);
   const createdAt = dateRange(query.created_after, query.created_before);
+  const completedAt = dateRange(query.completed_after, query.completed_before);
+  const stateGroups = normalizeArrayParam(query.state_group) as StateGroup[] | undefined;
 
   // Calendar-day boundaries in the workspace zone for the deadline filters.
   const tz = viewer?.timeZone ?? 'UTC';
@@ -193,6 +207,11 @@ export function buildWhere(
   if (query.watcher !== undefined) {
     and.push({ watchers: { some: { user_id: me(query.watcher) } } });
   }
+  if (query.reviewer !== undefined) {
+    const reviewer = me(query.reviewer);
+    and.push({ OR: [{ controller_id: reviewer }, { controller_id: null, created_by_id: reviewer }] });
+  }
+  if (stateGroups) and.push({ state: { group: { in: stateGroups } } });
 
   return {
     ...(projectId !== undefined && { project_id: projectId }),
@@ -216,11 +235,12 @@ export function buildWhere(
     }),
     ...(dueDate && { due_date: dueDate }),
     ...(createdAt && { created_at: createdAt }),
+    ...(completedAt && { completed_at: completedAt }),
   };
 }
 
 /** Sort by the requested column, with `id` as a deterministic tiebreaker for stable cursoring. */
-function buildOrderBy(query: IssueFilterQuery): Prisma.IssueOrderByWithRelationInput[] {
+function buildOrderBy(query: FilterQuery): Prisma.IssueOrderByWithRelationInput[] {
   return [{ [query.sort_by]: query.order }, { id: query.order }];
 }
 
@@ -272,6 +292,45 @@ export async function listIssues(
   const next_cursor = hasMore ? (data[data.length - 1]?.id ?? null) : null;
 
   return { data, next_cursor };
+}
+
+const PROJECT_BRIEF = { id: true, name: true, identifier: true, icon: true, color: true } as const;
+
+/**
+ * Issues across the whole workspace (7.B1): every project the member can see,
+ * the same filters as a project list plus `project[]` and `department[]` (with
+ * sub-departments). Replaces the per-project fan-out on Home and «Мои задачи».
+ */
+export async function listWorkspaceIssues(
+  prisma: PrismaClient,
+  workspace: { id: string; timezone: string },
+  member: WorkspaceMember,
+  query: WorkspaceIssueQuery,
+): Promise<{ data: (IssueWithRelations & { project: { id: string } })[]; next_cursor: string | null }> {
+  const viewer = { userId: member.user_id, timeZone: workspace.timezone };
+  const projects = normalizeArrayParam(query.project);
+  const departments = normalizeArrayParam(query.department);
+  const and: Prisma.IssueWhereInput[] = [
+    visibleIssuesWhere(workspace.id, member),
+    buildWhere(undefined, query, viewer),
+  ];
+  if (projects) and.push({ project_id: { in: projects } });
+  if (departments) {
+    const ids = await expandDepartments(prisma, workspace.id, departments);
+    and.push(inDepartmentsWhere(workspace.id, ids));
+  }
+
+  const limit = query.limit;
+  const issues = await prisma.issue.findMany({
+    where: { AND: and },
+    include: { ...INCLUDE_RELATIONS, project: { select: PROJECT_BRIEF } },
+    orderBy: buildOrderBy(query),
+    take: limit + 1,
+    ...(query.cursor && { cursor: { id: query.cursor }, skip: 1 }),
+  });
+  const hasMore = issues.length > limit;
+  const data = hasMore ? issues.slice(0, limit) : issues;
+  return { data, next_cursor: hasMore ? (data[data.length - 1]?.id ?? null) : null };
 }
 
 /**
@@ -428,9 +487,12 @@ export async function getIssue(
   workspaceId: string,
   projectId: string,
   issueId: string,
-): Promise<IssueWithRelations> {
+): Promise<IssueWithRelations & { distribution?: DistributionProgress }> {
   await resolveProject(prisma, workspaceId, projectId);
-  return resolveIssue(prisma, projectId, issueId);
+  const issue = await resolveIssue(prisma, projectId, issueId);
+  // The parent of a distribution carries the per-department progress (6.B2).
+  if (!issue.is_distribution) return issue;
+  return { ...issue, distribution: await distributionProgress(prisma, issue) };
 }
 
 export async function updateIssue(
@@ -838,7 +900,7 @@ async function issueCreatedRecipients(
  * so a delivery problem can never fail the request or roll back the mutation. This is
  * additive to the in-app `Notification` rows written inside the transaction.
  */
-async function notifyIssueRecipients(
+export async function notifyIssueRecipients(
   prisma: PrismaClient,
   params: {
     projectId: string;

@@ -34,6 +34,8 @@ export const ACTIVITY_ACTIONS = {
   DEADLINE_REQUESTED: 'issue.deadline_requested',
   DEADLINE_APPROVED: 'issue.deadline_approved',
   DEADLINE_REJECTED: 'issue.deadline_rejected',
+  // Ф10: a report was downloaded (until the audit log of 12.B1 takes over).
+  REPORT_EXPORTED: 'report.exported',
 } as const;
 
 export interface ActivityEntry {

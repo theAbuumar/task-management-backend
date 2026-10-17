@@ -41,7 +41,8 @@ export type ErrorCode =
   | 'NOT_REVIEWER'
   | 'NOT_ASSIGNEE'
   | 'DEADLINE_CHANGE_FORBIDDEN'
-  | 'DEADLINE_REQUEST_PENDING';
+  | 'DEADLINE_REQUEST_PENDING'
+  | 'DEPARTMENT_HAS_NO_HEAD';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -80,6 +81,7 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
   NOT_ASSIGNEE: 'Only an assignee of this issue can do this',
   DEADLINE_CHANGE_FORBIDDEN: 'Only the controller can change this deadline — request a change instead',
   DEADLINE_REQUEST_PENDING: 'A deadline change request is already waiting for a decision',
+  DEPARTMENT_HAS_NO_HEAD: 'A department picked for a distribution has no head to assign it to (see details)',
 };
 
 /**

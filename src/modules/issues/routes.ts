@@ -11,7 +11,10 @@ import {
   removeAssigneeSchema,
   addLabelSchema,
   removeLabelSchema,
+  distributeIssueSchema,
+  DistributeBodySchema,
 } from './schema.js';
+import { distributeIssue } from './distribution.js';
 import {
   listIssuesHandler,
   createIssueHandler,
@@ -29,6 +32,22 @@ export async function issueRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/', { schema: listIssuesSchema, preHandler: member }, listIssuesHandler);
   app.post('/', { schema: createIssueSchema, preHandler: member }, createIssueHandler);
+  // Рассылка подразделениям (6.B1).
+  app.post(
+    '/distribute',
+    { schema: distributeIssueSchema, preHandler: member },
+    async (request, reply) => {
+      const { projectId } = request.params as { projectId: string };
+      const parent = await distributeIssue(
+        app.prisma,
+        request.workspace.id,
+        projectId,
+        request.userId,
+        DistributeBodySchema.parse(request.body),
+      );
+      reply.code(201).send(parent);
+    },
+  );
 
   app.get('/:issueId', { schema: getIssueSchema, preHandler: member }, getIssueHandler);
   app.patch('/:issueId', { schema: updateIssueSchema, preHandler: member }, updateIssueHandler);

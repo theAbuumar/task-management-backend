@@ -45,6 +45,8 @@ import { workspaceIssueRoutes } from './modules/issues/workspace-routes.js';
 import { controlRoutes } from './modules/control/routes.js';
 import { controlAdminRoutes } from './modules/control/admin-routes.js';
 import { meRoutes } from './modules/control/summary-routes.js';
+import { analyticsRoutes } from './modules/analytics/routes.js';
+import { invalidateAnalytics } from './modules/analytics/data.js';
 
 export interface BuildAppOptions {
   /** Pino logger options, or `false`/`true` to disable/enable the default logger. */
@@ -138,6 +140,13 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(workspacePlugin);
   await app.register(schedulerPlugin);
 
+  // Analytics keep loaded facts for a few minutes; any successful write inside a
+  // workspace drops them so dashboards never lag behind a change (Ф10 10.B6).
+  app.addHook('onResponse', async (request, reply) => {
+    if (request.method === 'GET' || request.method === 'HEAD' || reply.statusCode >= 400) return;
+    if (request.workspace) invalidateAnalytics(request.workspace.id);
+  });
+
   // --- Routes ----------------------------------------------------------------
   // Liveness/readiness probe. Liveness always returns ok if the process is up;
   // readiness additionally pings the database so orchestrators don't route
@@ -192,6 +201,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   });
   // The signed-in member's own counters (sidebar, «Мои задачи»).
   await app.register(meRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/me' });
+  // Analytics and reports for the management (Ф10).
+  await app.register(analyticsRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug' });
   await app.register(activityRoutes, {
     prefix: '/api/v1/workspaces/:workspaceSlug/projects/:projectId/issues/:issueId/activity',
   });

@@ -33,6 +33,8 @@ export const envSchema = z
       .enum(['true', 'false'])
       .optional()
       .transform((v) => (v === undefined ? process.env.NODE_ENV !== 'test' : v === 'true')),
+    /** How long analytics keep the loaded facts (seconds). Any write to the workspace drops them earlier. 0 = no cache. */
+    ANALYTICS_CACHE_TTL: z.coerce.number().int().min(0).max(3600).default(300),
 
     // --- Database ---
     DATABASE_URL: z

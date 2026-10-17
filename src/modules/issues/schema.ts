@@ -6,6 +6,15 @@ const SORT_FIELDS = ['created_at', 'updated_at', 'priority', 'due_date', 'sort_o
 const SORT_ORDERS = ['asc', 'desc'] as const;
 const GROUP_FIELDS = ['state', 'priority', 'assignee'] as const;
 const KINDS = ['task', 'assignment'] as const;
+const STATE_GROUPS = [
+  'backlog',
+  'unstarted',
+  'started',
+  'review',
+  'completed',
+  'cancelled',
+] as const;
+const oneOrMany = z.union([z.string(), z.array(z.string())]);
 const userRef = z.union([z.string().uuid(), z.literal('me')]);
 // Query strings carry booleans as text.
 const boolFlag = z.enum(['true', 'false']).transform((v) => v === 'true');
@@ -28,6 +37,23 @@ export const CreateIssueBodySchema = z.object({
   basis: z.string().max(500).optional().nullable(),
   // Ответственный исполнитель — one of assignee_ids (defaults to the first).
   primary_assignee_id: z.string().uuid().optional(),
+});
+
+// Рассылка подразделениям (6.B1): one assignment, a child per department.
+export const DistributeBodySchema = z.object({
+  title: z.string().min(1).max(500),
+  description: z.string().max(50_000).optional().nullable(),
+  // Defaults to the project's default state.
+  state_id: z.string().uuid().optional(),
+  priority: z.enum(PRIORITIES).default('none'),
+  label_ids: z.array(z.string().uuid()).optional(),
+  start_date: z.string().datetime().optional().nullable(),
+  due_date: z.string().datetime().optional().nullable(),
+  controller_id: z.string().uuid().optional().nullable(),
+  // Defaults to true: the controller (or the author) accepts each department's work.
+  requires_review: z.boolean().optional(),
+  basis: z.string().max(500).optional().nullable(),
+  department_ids: z.array(z.string().uuid()).min(1).max(100),
 });
 
 export const UpdateIssueBodySchema = z.object({
@@ -61,6 +87,9 @@ export const IssueFilterQuerySchema = z.object({
   kind: z.enum(KINDS).optional(),
   controller: userRef.optional(),
   watcher: userRef.optional(),
+  // Who decides on the work: the controller, or the author when there is none (ADR-008).
+  reviewer: userRef.optional(),
+  state_group: z.union([z.enum(STATE_GROUPS), z.array(z.enum(STATE_GROUPS))]).optional(),
   // Execution-control filters (Ф5), computed in the workspace time zone.
   overdue: boolFlag.optional(),
   due_within: z.coerce.number().int().min(0).max(365).optional(),
@@ -72,11 +101,21 @@ export const IssueFilterQuerySchema = z.object({
   due_after: z.string().datetime().optional(),
   created_before: z.string().datetime().optional(),
   created_after: z.string().datetime().optional(),
+  completed_before: z.string().datetime().optional(),
+  completed_after: z.string().datetime().optional(),
   sort_by: z.enum(SORT_FIELDS).default('created_at'),
   order: z.enum(SORT_ORDERS).default('asc'),
   group_by: z.enum(GROUP_FIELDS).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+// Workspace-wide list (7.B1): the project filters plus projects and departments
+// (a department includes its sub-departments). No server-side grouping: state
+// ids differ between projects.
+export const WorkspaceIssueQuerySchema = IssueFilterQuerySchema.omit({ group_by: true }).extend({
+  project: oneOrMany.optional(),
+  department: oneOrMany.optional(),
 });
 
 export const AssigneeBodySchema = z.object({
@@ -89,7 +128,9 @@ export const LabelAttachBodySchema = z.object({
 
 export type CreateIssueBody = z.infer<typeof CreateIssueBodySchema>;
 export type UpdateIssueBody = z.infer<typeof UpdateIssueBodySchema>;
+export type DistributeBody = z.infer<typeof DistributeBodySchema>;
 export type IssueFilterQuery = z.infer<typeof IssueFilterQuerySchema>;
+export type WorkspaceIssueQuery = z.infer<typeof WorkspaceIssueQuerySchema>;
 export type AssigneeBody = z.infer<typeof AssigneeBodySchema>;
 export type LabelAttachBody = z.infer<typeof LabelAttachBodySchema>;
 
@@ -116,6 +157,16 @@ const issueShape = {
     controller_id: { type: 'string', nullable: true },
     requires_review: { type: 'boolean' },
     basis: { type: 'string', nullable: true },
+    is_distribution: { type: 'boolean' },
+    department_id: { type: 'string', nullable: true },
+    // { id, name, short_name } of the department a distribution child is addressed to.
+    department: { type: 'object', nullable: true, additionalProperties: true },
+    // { id, name, identifier, icon, color } — present in the workspace-wide list.
+    project: { type: 'object', additionalProperties: true },
+    // Parent of a distribution only (6.B2): { total, completed, cancelled, review, open,
+    // overdue, ready_to_close, items: [{ issue_id, sequence_id, title, department,
+    // assignee, state, due_date, completed_at, overdue, completed_late }] }.
+    distribution: { type: 'object', additionalProperties: true },
     controller: { type: 'object', nullable: true, additionalProperties: true },
     state: { type: 'object', additionalProperties: true },
     // { watchers, deadline_changes } — approved deadline moves count as "переносы".
@@ -131,44 +182,60 @@ const issueShape = {
 
 const security = [{ bearerAuth: [] }];
 
+const manyStrings = { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] };
+
+const filterProperties = {
+  state: manyStrings,
+  priority: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+  assignee: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+  label: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+  cycle: { type: 'string', format: 'uuid' },
+  module: { type: 'string', format: 'uuid' },
+  created_by: { type: 'string' },
+  parent_id: { type: 'string' },
+  kind: { type: 'string', enum: KINDS },
+  controller: { type: 'string', description: 'user id or `me`' },
+  watcher: { type: 'string', description: 'user id or `me`' },
+  reviewer: {
+    type: 'string',
+    description:
+      'user id or `me` — who decides on the work: the controller, or the author when there is none',
+  },
+  state_group: {
+    anyOf: [
+      { type: 'string', enum: STATE_GROUPS },
+      { type: 'array', items: { type: 'string', enum: STATE_GROUPS } },
+    ],
+  },
+  overdue: { type: 'string', enum: ['true', 'false'] },
+  due_within: { type: 'integer', minimum: 0, maximum: 365 },
+  open: { type: 'string', enum: ['true', 'false'] },
+  review_pending: { type: 'string', enum: ['true', 'false'] },
+  acknowledged: {
+    type: 'string',
+    enum: ['true', 'false'],
+    description: '`false` = assignments where I am an assignee and have not acknowledged',
+  },
+  search: { type: 'string' },
+  due_before: { type: 'string' },
+  due_after: { type: 'string' },
+  created_before: { type: 'string' },
+  created_after: { type: 'string' },
+  completed_before: { type: 'string' },
+  completed_after: { type: 'string' },
+  sort_by: { type: 'string', enum: SORT_FIELDS },
+  order: { type: 'string', enum: SORT_ORDERS },
+  cursor: { type: 'string' },
+  limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+} as const;
+
 export const listIssuesSchema: FastifySchema = {
   tags: ['Issues'],
   summary: 'List issues in a project with optional filtering and cursor pagination',
   security,
   querystring: {
     type: 'object',
-    properties: {
-      state: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
-      priority: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
-      assignee: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
-      label: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
-      cycle: { type: 'string', format: 'uuid' },
-      module: { type: 'string', format: 'uuid' },
-      created_by: { type: 'string' },
-      parent_id: { type: 'string' },
-      kind: { type: 'string', enum: KINDS },
-      controller: { type: 'string', description: 'user id or `me`' },
-      watcher: { type: 'string', description: 'user id or `me`' },
-      overdue: { type: 'string', enum: ['true', 'false'] },
-      due_within: { type: 'integer', minimum: 0, maximum: 365 },
-      open: { type: 'string', enum: ['true', 'false'] },
-      review_pending: { type: 'string', enum: ['true', 'false'] },
-      acknowledged: {
-        type: 'string',
-        enum: ['true', 'false'],
-        description: '`false` = assignments where I am an assignee and have not acknowledged',
-      },
-      search: { type: 'string' },
-      due_before: { type: 'string' },
-      due_after: { type: 'string' },
-      created_before: { type: 'string' },
-      created_after: { type: 'string' },
-      sort_by: { type: 'string', enum: SORT_FIELDS },
-      order: { type: 'string', enum: SORT_ORDERS },
-      group_by: { type: 'string', enum: GROUP_FIELDS },
-      cursor: { type: 'string' },
-      limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
-    },
+    properties: { ...filterProperties, group_by: { type: 'string', enum: GROUP_FIELDS } },
   },
   response: {
     // Two shapes: paginated (`data`/`next_cursor`) by default, or grouped
@@ -190,6 +257,30 @@ export const listIssuesSchema: FastifySchema = {
             },
           },
         },
+      },
+    },
+  },
+};
+
+export const listWorkspaceIssuesSchema: FastifySchema = {
+  tags: ['Issues'],
+  summary: 'List issues across the whole workspace (all visible projects)',
+  description:
+    'Same filters as the project list plus `project` and `department` (one or many; a department includes ' +
+    'its sub-departments: an issue belongs to the department it is addressed to, else to its primary ' +
+    "assignee's department). Private projects the caller cannot see are excluded. Each row carries " +
+    '`project { id, name, identifier, icon, color }`. Cursor pagination, no grouping.',
+  security,
+  querystring: {
+    type: 'object',
+    properties: { ...filterProperties, project: manyStrings, department: manyStrings },
+  },
+  response: {
+    200: {
+      type: 'object',
+      properties: {
+        data: { type: 'array', items: issueShape },
+        next_cursor: { type: 'string', nullable: true },
       },
     },
   },
@@ -218,6 +309,42 @@ export const createIssueSchema: FastifySchema = {
       requires_review: { type: 'boolean' },
       basis: { type: 'string', maxLength: 500, nullable: true },
       primary_assignee_id: { type: 'string', format: 'uuid' },
+    },
+  },
+  response: { 201: issueShape },
+};
+
+export const distributeIssueSchema: FastifySchema = {
+  tags: ['Issues'],
+  summary: 'Distribute an assignment to departments (one child per department)',
+  description:
+    'Creates a parent assignment (`is_distribution: true`) and one child per department: addressed to it ' +
+    '(`department_id`), titled "<title> — <department>", with the department head as the primary assignee. ' +
+    'Controller, deadline, priority, basis, labels and the review rule (default: required) are inherited. ' +
+    'One transaction: a department without a head answers 400 DEPARTMENT_HAS_NO_HEAD (`details.departments`) ' +
+    'and nothing is created. In a private project the heads become project members. Returns the parent with ' +
+    '`distribution` progress.',
+  security,
+  body: {
+    type: 'object',
+    required: ['title', 'department_ids'],
+    properties: {
+      title: { type: 'string', minLength: 1, maxLength: 500 },
+      description: { type: 'string', nullable: true },
+      state_id: { type: 'string', format: 'uuid' },
+      priority: { type: 'string', enum: PRIORITIES },
+      label_ids: { type: 'array', items: { type: 'string', format: 'uuid' } },
+      start_date: { type: 'string', nullable: true },
+      due_date: { type: 'string', nullable: true },
+      controller_id: { type: 'string', format: 'uuid', nullable: true },
+      requires_review: { type: 'boolean' },
+      basis: { type: 'string', maxLength: 500, nullable: true },
+      department_ids: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 100,
+        items: { type: 'string', format: 'uuid' },
+      },
     },
   },
   response: { 201: issueShape },
