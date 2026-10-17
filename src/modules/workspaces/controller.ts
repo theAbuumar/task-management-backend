@@ -111,6 +111,14 @@ export async function removeMemberHandler(
   reply.code(204).send();
 }
 
+export async function leaveWorkspaceHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  await workspaceService.leaveWorkspace(request.server.prisma, request.workspace.id, request.userId);
+  reply.code(204).send();
+}
+
 export async function inviteMemberHandler(
   request: FastifyRequest,
   reply: FastifyReply,

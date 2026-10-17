@@ -10,6 +10,8 @@ import {
   emailSignupRouteSchema,
   emailVerifyRouteSchema,
   emailLoginRouteSchema,
+  emailOtpRequestRouteSchema,
+  emailOtpVerifyRouteSchema,
   accountDeleteRequestRouteSchema,
   accountDeleteConfirmRouteSchema,
   googleRedirectRouteSchema,
@@ -32,6 +34,8 @@ import {
   updateMeHandler,
   emailSignupHandler,
   emailVerifyHandler,
+  emailOtpRequestHandler,
+  emailOtpVerifyHandler,
   accountDeleteRequestHandler,
   accountDeleteConfirmHandler,
   googleRedirectHandler,
@@ -69,6 +73,17 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     emailVerifyHandler,
   );
   app.post('/email/login', { schema: emailLoginRouteSchema, config: authRateLimit }, loginHandler);
+  // Passwordless email sign-in: one code, no password (primary email flow for the SPA).
+  app.post(
+    '/email/otp/request',
+    { schema: emailOtpRequestRouteSchema, config: authRateLimit },
+    emailOtpRequestHandler,
+  );
+  app.post(
+    '/email/otp/verify',
+    { schema: emailOtpVerifyRouteSchema, config: authRateLimit },
+    emailOtpVerifyHandler,
+  );
   // Google OAuth 2.0 (auth_tz.md §3).
   app.get('/google', { schema: googleRedirectRouteSchema }, googleRedirectHandler);
   app.get('/google/callback', { schema: googleCallbackRouteSchema }, googleCallbackHandler);

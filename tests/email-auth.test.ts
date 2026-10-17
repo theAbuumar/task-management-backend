@@ -78,7 +78,7 @@ describe('email OTP signup + verify', () => {
       .send({ email: emails.happy, code: '000000' });
 
     expect(res.status).toBe(400);
-    expect(res.body.error.code).toBe('BAD_REQUEST');
+    expect(res.body.error.code).toBe('OTP_INVALID');
   });
 
   it('full happy path on a fresh email: signup → verify → login', async () => {

@@ -5,13 +5,14 @@
 // separate from listening lets tests build an app and drive it via injection
 // without binding a port.
 //
-// Plugins, hooks and feature modules register here. For now this is the bare
-// skeleton (logging + a single liveness route); base plugins (error handler,
-// swagger, etc.) and the `/api/v1` module tree land in subsequent Phase 0/1 tasks.
+// Plugins, hooks and feature modules register here: base plugins (error handler,
+// CORS, helmet, swagger, cookies, rate limit, Prisma, storage, auth/workspace hooks)
+// first, then the `/api/v1` module tree.
 
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import type { LoggerOptions } from 'pino';
 import { config, isDev } from './config/index.js';
@@ -80,8 +81,15 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // Order matters: the error handler is installed first so any later failure is
   // rendered as the standard envelope; swagger registers before routes so it can
   // capture their schemas; prisma decorates `app.prisma`. Remaining security
-  // plugins (helmet) are added in the Phase 4 hardening pass.
+  // plugins follow (helmet right after CORS).
   await app.register(errorHandlerPlugin);
+  if (config.NODE_ENV === 'production' && config.CORS_ORIGIN === '*') {
+    // With credentials, `*` reflects ANY origin — a foreign site could then call
+    // cookie-authenticated endpoints. Production must list the SPA origin(s).
+    app.log.warn(
+      'CORS_ORIGIN is "*" in production — set it to the frontend origin(s), e.g. https://tasks.example.edu',
+    );
+  }
   // CORS with credentials so a browser SPA on a different origin can call the API
   // and send/receive the httpOnly auth cookies (refresh token, tg_session). Allowed
   // origins come from CORS_ORIGIN (comma-separated). With credentials a literal `*`
@@ -89,6 +97,21 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(cors, {
     origin: config.CORS_ORIGIN === '*' ? true : config.CORS_ORIGIN.split(',').map((o) => o.trim()),
     credentials: true,
+  });
+  // Security headers. The CSP allows the inline script/style Swagger UI needs at
+  // `/docs`; the API itself only returns JSON. CORP is `cross-origin` so files and
+  // avatars can be embedded by the SPA when it is served from another origin.
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+      },
+    },
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    crossOriginEmbedderPolicy: false,
   });
   await app.register(swaggerPlugin);
   // Parse/serialize cookies so the auth layer can deliver the refresh token as an

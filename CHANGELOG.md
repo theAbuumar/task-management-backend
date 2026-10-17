@@ -30,6 +30,39 @@
 
 ---
 
+## 2026-10-17 — Ф1 (бэк): ссылки в письмах, вход по коду, сессии, helmet, выход из пространства, коды ошибок
+**Фаза:** Ф1 · **Тип:** исправление, новая функция, безопасность
+**Что изменено:**
+- **1.B1** Ссылки в письмах-приглашениях ведут на фронт (`FRONTEND_URL`), а не на хост API. Добавлен хелпер `lib/urls.ts → frontendUrl()`. Email-приглашение открывает `/invites/:token`, приглашение зарегистрированному пользователю — `/invitations`.
+- **1.B2** Беспарольный вход по коду на email: запрос кода и подтверждение. Новый адрес получает неактивный аккаунт без пароля, который активируется после ввода кода. Ответ на запрос одинаковый для нового и существующего адреса (защита от перебора).
+- **1.B3** `JWT_ACCESS_TTL` по умолчанию 15m (был 3h). Повторное использование уже ротированного refresh-токена отзывает все сессии пользователя. Окно в 10 секунд защищает от ложных срабатываний при гонке вкладок. Деактивированный пользователь не может обновить сессию.
+- **1.B4** Подключён `@fastify/helmet`. CSP совместима со Swagger UI, `crossOriginResourcePolicy: cross-origin` позволяет SPA показывать файлы.
+- **1.B5** При `CORS_ORIGIN='*'` в production на старте пишется предупреждение. В `.env.example` описано, когда нужен `SameSite=lax` (общий origin), а когда `none` (разные origin).
+- **1.B6** Выход из пространства. Владелец получает 403 `OWNER_CANNOT_LEAVE`. Вместе с членством удаляется участие в проектах пространства.
+- **1.B7** Конкретные коды ошибок для пользовательских сценариев и их каталог `ERROR_CODES` в `lib/errors.ts`.
+- Письма (коды, приглашения, уведомления о задачах) переведены на русский, даты в формате «23 октября 2026 г.».
+- **1.B8** `uploads/` уже был в `.gitignore`. Обновлён устаревший комментарий в шапке `app.ts`.
+- Тесты: `hookTimeout` увеличен до 60 с, потому что холодный старт приложения на Windows ронял `auth-hardening` по таймауту хука.
+**Файлы:** `src/lib/urls.ts` (новый), `src/lib/errors.ts`, `src/lib/email.ts`, `src/app.ts`, `src/config/env.ts`, `src/modules/auth/{schema,service,controller,routes,otp.service}.ts`, `src/modules/workspaces/{schema,service,controller,routes}.ts`, `src/modules/member-invites/service.ts`, `src/modules/invites/service.ts`, `.env.example`, `vitest.config.ts`
+**API:**
+- `POST /api/v1/auth/email/otp/request` — новый, `{ email, display_name? }` → `{ status: 'otp_sent', email }`.
+- `POST /api/v1/auth/email/otp/verify` — новый, `{ email, code }` → пара токенов и refresh-cookie.
+- `POST /api/v1/workspaces/:slug/leave` — новый, 204 или 403 `OWNER_CANNOT_LEAVE`.
+- Новые коды ошибок вместо общих (HTTP-статусы не менялись):
+  - `INVALID_CREDENTIALS` (было `UNAUTHORIZED`);
+  - `EMAIL_NOT_VERIFIED`, `ACCOUNT_DEACTIVATED` (было `FORBIDDEN`);
+  - `NO_PASSWORD` (было `BAD_REQUEST`);
+  - `OTP_NOT_FOUND`, `OTP_INVALID`, `OTP_EXPIRED`, `OTP_TOO_MANY_ATTEMPTS` (было `BAD_REQUEST`);
+  - `ALREADY_MEMBER`, `INVITE_ALREADY_ACCEPTED` (было `CONFLICT`);
+  - `INVITE_EXPIRED` (было `GONE`);
+  - `INVITE_EMAIL_MISMATCH` (было `FORBIDDEN`).
+- Все ответы получили заголовки безопасности (helmet).
+**БД:** —
+**Конфигурация:** значение по умолчанию `JWT_ACCESS_TTL` изменилось на `15m`. В проде проверить `CORS_ORIGIN` (нужен список origin фронта) и `SESSION_COOKIE_SAMESITE`.
+**Тесты:** новый `tests/stabilization.test.ts`: вход по коду, повторное использование кода, ссылка в приглашении, выход из пространства, обнаружение повторного использования refresh. Обновлены ожидаемые коды в `auth`, `email-auth`, `invites` и `config`. Итог: 18 файлов, 136 тестов зелёные (локальный Postgres).
+**Как проверить:** `NODE_ENV=test DATABASE_URL=<локальная БД> npx vitest run`
+**Совместимость:** фронт переходит на `/auth/email/otp/*`, использует `/leave` и коды ошибок (см. CHANGELOG фронта, Ф1).
+
 ## 2026-10-17 — 0.D2 Заведён журнал изменений
 **Фаза:** Ф0 · **Тип:** документация
 **Что изменено:**

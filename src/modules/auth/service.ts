@@ -27,6 +27,8 @@ import type {
   UpdateMeBody,
   EmailSignupBody,
   EmailVerifyBody,
+  EmailOtpRequestBody,
+  EmailOtpVerifyBody,
   AccountDeleteConfirmBody,
 } from './schema.js';
 
@@ -42,6 +44,9 @@ function stripHash(user: User): SafeUser {
   const { password_hash: _ph, ...safe } = user;
   return safe;
 }
+
+/** How long a just-rotated refresh token may be replayed without being treated as theft. */
+const REFRESH_REUSE_GRACE_MS = 10_000;
 
 /** Turn a JWT-style TTL string ("15m", "7d", "3600") into a future Date. */
 function ttlToDate(ttl: string): Date {
@@ -87,7 +92,9 @@ export async function login(prisma: PrismaClient, body: LoginBody): Promise<Auth
   // Account exists but was created via OAuth/Telegram and never set a password
   // (auth_tz.md §6): guide the user to their provider rather than a generic failure.
   if (user && user.password_hash === null) {
-    throw AppError.badRequest(
+    throw new AppError(
+      400,
+      'NO_PASSWORD',
       'This account has no password. Sign in with Google or GitHub, or set a password first.',
     );
   }
@@ -98,16 +105,20 @@ export async function login(prisma: PrismaClient, body: LoginBody): Promise<Auth
     user.password_hash !== null &&
     (await verifySecret(user.password_hash, body.password));
 
-  if (!user || !valid) throw AppError.unauthorized('Invalid email or password');
+  if (!user || !valid) {
+    throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid email or password');
+  }
   if (!user.is_active) {
     // An email account that never confirmed its OTP is inactive + unverified —
     // guide it to verification rather than the generic "deactivated" (§6).
     if (!user.email_verified) {
-      throw AppError.forbidden(
+      throw new AppError(
+        403,
+        'EMAIL_NOT_VERIFIED',
         'Please verify your email address first. Check your inbox for the verification code.',
       );
     }
-    throw AppError.forbidden('This account has been deactivated');
+    throw new AppError(403, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated');
   }
 
   return issueTokenPair(prisma, user);
@@ -180,6 +191,66 @@ export async function emailVerify(
   await ensureEmailIdentity(prisma, activated.id, activated.email);
 
   return issueTokenPair(prisma, activated);
+}
+
+// ─── Passwordless email sign-in ─────────────────────────────────────────────────
+
+/**
+ * Step 1: email a one-time sign-in code. The response is identical whether or not
+ * the address has an account (no enumeration). A brand-new address gets an inactive,
+ * unverified, password-less account that step 2 activates.
+ */
+export async function emailOtpRequest(
+  prisma: PrismaClient,
+  body: EmailOtpRequestBody,
+): Promise<OtpChallenge> {
+  const existing = await prisma.user.findUnique({ where: { email: body.email } });
+  if (!existing) {
+    await prisma.user.create({
+      data: {
+        email: body.email,
+        password_hash: null,
+        display_name: body.display_name ?? body.email.split('@')[0] ?? body.email,
+        email_verified: false,
+        is_active: false,
+      },
+    });
+  }
+
+  const code = await issueOtp(prisma, { email: body.email }, 'login');
+  await sendOtpEmail(body.email, code, 'login');
+
+  return { status: 'otp_sent', email: body.email };
+}
+
+/**
+ * Step 2: verify the code and issue a session. Owning the inbox proves the address,
+ * so a not-yet-verified account is verified + activated here. An account that was
+ * verified and later deactivated stays locked out.
+ */
+export async function emailOtpVerify(
+  prisma: PrismaClient,
+  body: EmailOtpVerifyBody,
+): Promise<AuthTokens> {
+  await verifyOtp(prisma, { email: body.email }, 'login', body.code);
+
+  const user = await prisma.user.findUnique({ where: { email: body.email } });
+  if (!user) throw AppError.notFound('No account found for this email');
+  if (!user.is_active && user.email_verified) {
+    throw new AppError(403, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated');
+  }
+
+  const active =
+    user.is_active && user.email_verified
+      ? user
+      : await prisma.user.update({
+          where: { id: user.id },
+          data: { email_verified: true, is_active: true },
+        });
+
+  await ensureEmailIdentity(prisma, active.id, active.email);
+
+  return issueTokenPair(prisma, active);
 }
 
 // ─── Code-confirmed account deletion ────────────────────────────────────────────
@@ -553,11 +624,26 @@ export async function refresh(prisma: PrismaClient, rawToken: string): Promise<A
   }
 
   const stored = await prisma.refreshToken.findUnique({ where: { id: payload.jti } });
-  if (!stored || stored.revoked_at !== null || stored.expires_at < new Date()) {
+  if (stored && stored.revoked_at !== null) {
+    // Reuse of an already-rotated token means it may have been stolen: revoke the
+    // user's whole session family. A short grace window tolerates two tabs racing
+    // to refresh with the same cookie.
+    if (Date.now() - stored.revoked_at.getTime() > REFRESH_REUSE_GRACE_MS) {
+      await prisma.refreshToken.updateMany({
+        where: { user_id: stored.user_id, revoked_at: null },
+        data: { revoked_at: new Date() },
+      });
+    }
+    throw AppError.unauthorized('Refresh token has been revoked or expired');
+  }
+  if (!stored || stored.expires_at < new Date()) {
     throw AppError.unauthorized('Refresh token has been revoked or expired');
   }
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: payload.sub } });
+  if (!user.is_active) {
+    throw new AppError(403, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated');
+  }
 
   // Rotate: revoke the old token record, then issue a fresh pair.
   await prisma.refreshToken.update({ where: { id: stored.id }, data: { revoked_at: new Date() } });

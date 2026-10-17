@@ -182,6 +182,19 @@ export const removeMemberSchema: FastifySchema = {
   response: { 204: { type: 'null' } },
 };
 
+export const leaveWorkspaceSchema: FastifySchema = {
+  tags: ['Workspaces'],
+  summary: 'Leave the workspace (any member except the owner)',
+  description:
+    'Removes the caller from the workspace and its projects. The owner gets 403 `OWNER_CANNOT_LEAVE` until ownership is transferred.',
+  security,
+  params: {
+    type: 'object',
+    properties: { workspaceSlug: { type: 'string' } },
+  },
+  response: { 204: { type: 'null' } },
+};
+
 const inviteShape = {
   type: 'object',
   properties: {

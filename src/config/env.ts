@@ -36,8 +36,9 @@ export const envSchema = z
     // --- Auth / JWT --- (secrets required; no defaults, never committed)
     JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
     JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 characters'),
-    // auth_tz.md §8: access token lives ~3h, refresh ~30 days (httpOnly cookie).
-    JWT_ACCESS_TTL: duration.default('3h'),
+    // Short-lived access token (kept in SPA memory) + ~30-day refresh token in an
+    // httpOnly cookie; the SPA refreshes silently (DECISIONS.md ADR-004).
+    JWT_ACCESS_TTL: duration.default('15m'),
     JWT_REFRESH_TTL: duration.default('30d'),
 
     // --- Session cookie --- (refresh token is delivered as an httpOnly cookie; auth_tz.md §8)

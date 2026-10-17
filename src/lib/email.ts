@@ -7,6 +7,14 @@
 import { sendMail } from './mailer.js';
 import type { EmailOtpPurpose } from '@prisma/client';
 
+// Copy is Russian (the product's primary locale, DECISIONS.md ADR-002); localized
+// HTML templates per user locale come with the notification dispatcher (Ф8).
+
+/** "23 октября 2026 г." — dates in emails are shown in the Russian long form. */
+function formatDateRu(date: Date): string {
+  return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
 export interface InviteEmailPayload {
   to: string;
   workspaceName: string;
@@ -18,12 +26,12 @@ export interface InviteEmailPayload {
 export async function sendInviteEmail(payload: InviteEmailPayload): Promise<void> {
   await sendMail({
     to: payload.to,
-    subject: `You've been invited to join ${payload.workspaceName}`,
+    subject: `Приглашение в «${payload.workspaceName}»`,
     text: [
-      `${payload.inviterName} invited you to join the "${payload.workspaceName}" workspace.`,
+      `${payload.inviterName} приглашает вас в рабочее пространство «${payload.workspaceName}».`,
       '',
-      `Accept the invite: ${payload.inviteUrl}`,
-      `This invite expires on ${payload.expiresAt.toISOString()}.`,
+      `Принять приглашение: ${payload.inviteUrl}`,
+      `Приглашение действует до ${formatDateRu(payload.expiresAt)}.`,
     ].join('\n'),
   });
 }
@@ -46,12 +54,12 @@ export interface MemberInviteEmailPayload {
 export async function sendMemberInviteEmail(payload: MemberInviteEmailPayload): Promise<void> {
   await sendMail({
     to: payload.to,
-    subject: `${payload.inviterName} invited you to join ${payload.workspaceName}`,
+    subject: `${payload.inviterName} приглашает вас в «${payload.workspaceName}»`,
     text: [
-      `${payload.inviterName} invited you to join the "${payload.workspaceName}" workspace.`,
+      `${payload.inviterName} приглашает вас в рабочее пространство «${payload.workspaceName}».`,
       '',
-      `Review and accept the invite here: ${payload.inboxUrl}`,
-      `This invite expires on ${payload.expiresAt.toISOString()}.`,
+      `Посмотреть и принять приглашение: ${payload.inboxUrl}`,
+      `Приглашение действует до ${formatDateRu(payload.expiresAt)}.`,
     ].join('\n'),
   });
 }
@@ -76,11 +84,11 @@ export async function sendIssueNotificationEmail(
   payload: IssueNotificationEmailPayload,
 ): Promise<void> {
   const subject = payload.assigned
-    ? `${payload.actorName} assigned you ${payload.issueKey}: ${payload.issueTitle}`
-    : `New task in ${payload.projectName} — ${payload.issueKey}: ${payload.issueTitle}`;
+    ? `${payload.actorName} назначил(а) вам ${payload.issueKey}: ${payload.issueTitle}`
+    : `Новая задача в «${payload.projectName}» — ${payload.issueKey}: ${payload.issueTitle}`;
   const lead = payload.assigned
-    ? `${payload.actorName} assigned you a task.`
-    : `${payload.actorName} created a task in "${payload.projectName}".`;
+    ? `${payload.actorName} назначил(а) вам задачу.`
+    : `${payload.actorName} создал(а) задачу в проекте «${payload.projectName}».`;
   await sendMail({
     to: payload.to,
     subject,
@@ -96,19 +104,19 @@ export async function sendOtpEmail(
 ): Promise<void> {
   const action =
     purpose === 'signup'
-      ? 'confirm your email address'
+      ? 'подтвердить адрес электронной почты'
       : purpose === 'delete_account'
-        ? 'permanently delete your account'
-        : 'sign in';
+        ? 'безвозвратно удалить аккаунт'
+        : 'войти в систему';
   // Deletion is destructive, so the "didn't request this" line nudges toward securing
   // the account rather than a neutral "ignore this email".
   const footer =
     purpose === 'delete_account'
-      ? 'The code expires in 10 minutes. If you did not request account deletion, ignore this email and consider changing your password.'
-      : 'The code expires in 10 minutes. If you did not request it, you can ignore this email.';
+      ? 'Код действует 10 минут. Если вы не запрашивали удаление аккаунта, проигнорируйте это письмо и смените пароль.'
+      : 'Код действует 10 минут. Если вы не запрашивали код, просто проигнорируйте это письмо.';
   await sendMail({
     to,
-    subject: `Your verification code: ${code}`,
-    text: [`Use this code to ${action}:`, '', `    ${code}`, '', footer].join('\n'),
+    subject: `Код подтверждения: ${code}`,
+    text: [`Используйте этот код, чтобы ${action}:`, '', `    ${code}`, '', footer].join('\n'),
   });
 }

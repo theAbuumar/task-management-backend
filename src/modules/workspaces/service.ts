@@ -1,7 +1,7 @@
 import type { PrismaClient, Workspace, WorkspaceMember, WorkspaceInvite } from '@prisma/client';
 import { AppError } from '../../lib/errors.js';
 import { sendInviteEmail } from '../../lib/email.js';
-import { config } from '../../config/index.js';
+import { frontendUrl } from '../../lib/urls.js';
 import type {
   CreateWorkspaceBody,
   UpdateWorkspaceBody,
@@ -87,7 +87,9 @@ export async function addMember(
   const existing = await prisma.workspaceMember.findUnique({
     where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: body.user_id } },
   });
-  if (existing) throw AppError.conflict('User is already a member of this workspace');
+  if (existing) {
+    throw new AppError(409, 'ALREADY_MEMBER', 'User is already a member of this workspace');
+  }
 
   return prisma.workspaceMember.create({
     data: { workspace_id: workspaceId, user_id: body.user_id, role: body.role },
@@ -134,14 +136,44 @@ export async function removeMember(
   if (!member) throw AppError.notFound('Member not found');
   if (member.role === 'owner') throw AppError.forbidden('Cannot remove the workspace owner');
   if (targetUserId === requesterId) {
-    throw AppError.forbidden(
-      'Use the leave-workspace endpoint to remove yourself (not implemented yet)',
-    );
+    throw AppError.forbidden('Use the leave-workspace endpoint to remove yourself');
   }
 
   await prisma.workspaceMember.delete({
     where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: targetUserId } },
   });
+}
+
+/**
+ * The requester leaves the workspace. The owner cannot leave (the workspace would be
+ * left without one) until ownership is transferred. Project memberships inside the
+ * workspace go with the workspace membership; authored issues/comments stay.
+ */
+export async function leaveWorkspace(
+  prisma: PrismaClient,
+  workspaceId: string,
+  userId: string,
+): Promise<void> {
+  const member = await prisma.workspaceMember.findUnique({
+    where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } },
+  });
+  if (!member) throw AppError.notFound('Member not found');
+  if (member.role === 'owner') {
+    throw new AppError(
+      403,
+      'OWNER_CANNOT_LEAVE',
+      'The workspace owner cannot leave. Transfer ownership first.',
+    );
+  }
+
+  await prisma.$transaction([
+    prisma.projectMember.deleteMany({
+      where: { user_id: userId, project: { workspace_id: workspaceId } },
+    }),
+    prisma.workspaceMember.delete({
+      where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } },
+    }),
+  ]);
 }
 
 // ─── Invites ──────────────────────────────────────────────────────────────────
@@ -167,7 +199,7 @@ export async function inviteMember(
       where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: existingUser.id } },
     });
     if (existingMember) {
-      throw AppError.conflict('This user is already a member of the workspace');
+      throw new AppError(409, 'ALREADY_MEMBER', 'This user is already a member of the workspace');
     }
   }
 
@@ -192,7 +224,7 @@ export async function inviteMember(
     },
   });
 
-  const inviteUrl = `${config.PUBLIC_BASE_URL}/invites/${invite.token}`;
+  const inviteUrl = frontendUrl(`/invites/${invite.token}`);
   await sendInviteEmail({
     to: body.email,
     workspaceName: workspace.name,

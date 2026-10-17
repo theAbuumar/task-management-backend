@@ -71,7 +71,7 @@ describe('auth flow', () => {
       .post('/api/v1/auth/login')
       .send({ email: EMAIL, password: 'wrongpassword' });
     expect(res.status).toBe(401);
-    expect(res.body.error.code).toBe('UNAUTHORIZED');
+    expect(res.body.error.code).toBe('INVALID_CREDENTIALS');
   });
 
   it('GET /me returns the authenticated user', async () => {

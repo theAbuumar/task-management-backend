@@ -46,6 +46,19 @@ export const EmailVerifyBodySchema = z.object({
   code: z.string().regex(/^\d{6}$/, 'Code must be 6 digits'),
 });
 
+// Passwordless email sign-in: request a code. `display_name` is only used when the
+// email has no account yet (one is created on first successful verification).
+export const EmailOtpRequestBodySchema = z.object({
+  email: z.string().email(),
+  display_name: z.string().trim().min(1).max(100).optional(),
+});
+
+// Passwordless email sign-in: confirm the code.
+export const EmailOtpVerifyBodySchema = z.object({
+  email: z.string().email(),
+  code: z.string().regex(/^\d{6}$/, 'Code must be 6 digits'),
+});
+
 // Confirm account deletion: the 6-digit code emailed to the logged-in user. The
 // email/user is taken from the session, so only the code is sent.
 export const AccountDeleteConfirmBodySchema = z.object({
@@ -129,6 +142,8 @@ export type RefreshBody = z.infer<typeof RefreshBodySchema>;
 export type UpdateMeBody = z.infer<typeof UpdateMeBodySchema>;
 export type EmailSignupBody = z.infer<typeof EmailSignupBodySchema>;
 export type EmailVerifyBody = z.infer<typeof EmailVerifyBodySchema>;
+export type EmailOtpRequestBody = z.infer<typeof EmailOtpRequestBodySchema>;
+export type EmailOtpVerifyBody = z.infer<typeof EmailOtpVerifyBodySchema>;
 export type AccountDeleteConfirmBody = z.infer<typeof AccountDeleteConfirmBodySchema>;
 export type GoogleCallbackQuery = z.infer<typeof GoogleCallbackQuerySchema>;
 export type GithubCallbackQuery = z.infer<typeof GithubCallbackQuerySchema>;
@@ -261,6 +276,42 @@ export const emailSignupRouteSchema: FastifySchema = {
 export const emailVerifyRouteSchema: FastifySchema = {
   tags: ['Auth'],
   summary: 'Confirm a signup OTP — verifies + activates the account and issues a session',
+  body: {
+    type: 'object',
+    required: ['email', 'code'],
+    properties: {
+      email: { type: 'string', format: 'email' },
+      code: { type: 'string', pattern: '^\\d{6}$' },
+    },
+  },
+  response: responses({
+    200: tokenPair,
+  }),
+};
+
+export const emailOtpRequestRouteSchema: FastifySchema = {
+  tags: ['Auth'],
+  summary: 'Passwordless sign-in, step 1 — email a 6-digit code',
+  description:
+    'Works for existing and new addresses alike (same response either way, so it does not reveal whether an account exists). For a new address an inactive account is prepared and activated on step 2. Per-email throttle: 1 code / 60 s.',
+  body: {
+    type: 'object',
+    required: ['email'],
+    properties: {
+      email: { type: 'string', format: 'email' },
+      display_name: { type: 'string', minLength: 1, maxLength: 100 },
+    },
+  },
+  response: responses({
+    200: otpChallenge,
+  }),
+};
+
+export const emailOtpVerifyRouteSchema: FastifySchema = {
+  tags: ['Auth'],
+  summary: 'Passwordless sign-in, step 2 — confirm the code and get a session',
+  description:
+    'Verifies the code (10 min TTL, 5 attempts, single use), activates a new account, and issues a session (sets the refresh cookie). Errors: `OTP_INVALID`, `OTP_EXPIRED`, `OTP_TOO_MANY_ATTEMPTS`, `OTP_NOT_FOUND`, `ACCOUNT_DEACTIVATED`.',
   body: {
     type: 'object',
     required: ['email', 'code'],

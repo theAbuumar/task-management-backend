@@ -194,7 +194,7 @@ describe('GET /invites/:token', () => {
       },
     });
     const res = await request(app.server).get(`${invitesBase()}/${inv.token}`).expect(410);
-    expect(res.body.error.code).toBe('GONE');
+    expect(res.body.error.code).toBe('INVITE_EXPIRED');
   });
 });
 

@@ -10,7 +10,7 @@
 
 import type { PrismaClient, Prisma, WorkspaceMemberInvite, WorkspaceMember } from '@prisma/client';
 import { AppError } from '../../lib/errors.js';
-import { config } from '../../config/index.js';
+import { frontendUrl } from '../../lib/urls.js';
 import { sendMemberInviteEmail } from '../../lib/email.js';
 import { sendWorkspaceInvitePrompt, telegramConfigured } from '../auth/telegram.service.js';
 import type { InviteExistingUserBody } from './schema.js';
@@ -55,7 +55,9 @@ export async function inviteExistingUser(
   const existingMember = await prisma.workspaceMember.findUnique({
     where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: target.id } },
   });
-  if (existingMember) throw AppError.conflict('This user is already a member of the workspace');
+  if (existingMember) {
+    throw new AppError(409, 'ALREADY_MEMBER', 'This user is already a member of the workspace');
+  }
 
   // One live pending invite per (workspace, target): drop any prior pending one so a
   // re-invite refreshes the token/expiry rather than piling up.
@@ -84,7 +86,7 @@ export async function inviteExistingUser(
         to: target.email,
         workspaceName: workspace.name,
         inviterName: inviter.display_name,
-        inboxUrl: `${config.PUBLIC_BASE_URL}/invitations`,
+        inboxUrl: frontendUrl('/invitations'),
         expiresAt,
       });
       delivered_to.push('email');

@@ -109,16 +109,20 @@ export async function verifyOtp(
     orderBy: { created_at: 'desc' },
   });
 
-  if (!otp) throw AppError.badRequest('No active verification code. Request a new one.');
+  if (!otp) throw new AppError(400, 'OTP_NOT_FOUND', 'No active verification code. Request a new one.');
 
   if (otp.expires_at < new Date()) {
     await prisma.emailOtp.update({ where: { id: otp.id }, data: { consumed_at: new Date() } });
-    throw AppError.badRequest('This verification code has expired. Request a new one.');
+    throw new AppError(400, 'OTP_EXPIRED', 'This verification code has expired. Request a new one.');
   }
 
   if (otp.attempts >= MAX_ATTEMPTS) {
     await prisma.emailOtp.update({ where: { id: otp.id }, data: { consumed_at: new Date() } });
-    throw AppError.badRequest('Too many incorrect attempts. Request a new code.');
+    throw new AppError(
+      400,
+      'OTP_TOO_MANY_ATTEMPTS',
+      'Too many incorrect attempts. Request a new code.',
+    );
   }
 
   const matches = await verifySecret(otp.code_hash, code);
@@ -129,7 +133,7 @@ export async function verifyOtp(
       // Invalidate immediately once the cap is reached so no further tries land.
       data: { attempts, ...(attempts >= MAX_ATTEMPTS ? { consumed_at: new Date() } : {}) },
     });
-    throw AppError.badRequest('Invalid verification code.');
+    throw new AppError(400, 'OTP_INVALID', 'Invalid verification code.');
   }
 
   await prisma.emailOtp.update({ where: { id: otp.id }, data: { consumed_at: new Date() } });

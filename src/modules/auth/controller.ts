@@ -25,6 +25,8 @@ import {
   UpdateMeBodySchema,
   EmailSignupBodySchema,
   EmailVerifyBodySchema,
+  EmailOtpRequestBodySchema,
+  EmailOtpVerifyBodySchema,
   AccountDeleteConfirmBodySchema,
   GoogleCallbackQuerySchema,
   GithubCallbackQuerySchema,
@@ -80,6 +82,25 @@ export async function emailVerifyHandler(
 ): Promise<void> {
   const body = EmailVerifyBodySchema.parse(request.body);
   const result = await authService.emailVerify(request.server.prisma, body);
+  setRefreshCookie(reply, result.refresh_token);
+  reply.send(result);
+}
+
+export async function emailOtpRequestHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const body = EmailOtpRequestBodySchema.parse(request.body);
+  const result = await authService.emailOtpRequest(request.server.prisma, body);
+  reply.send(result);
+}
+
+export async function emailOtpVerifyHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const body = EmailOtpVerifyBodySchema.parse(request.body);
+  const result = await authService.emailOtpVerify(request.server.prisma, body);
   setRefreshCookie(reply, result.refresh_token);
   reply.send(result);
 }

@@ -12,6 +12,7 @@ import {
   changeMemberRoleSchema,
   removeMemberSchema,
   inviteMemberSchema,
+  leaveWorkspaceSchema,
 } from './schema.js';
 import { inviteExistingUserSchema } from '../member-invites/schema.js';
 import {
@@ -26,6 +27,7 @@ import {
   removeMemberHandler,
   inviteMemberHandler,
   inviteExistingUserHandler,
+  leaveWorkspaceHandler,
 } from './controller.js';
 
 export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
@@ -61,6 +63,16 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
       preHandler: [authenticate, requireWorkspaceMember('owner')],
     },
     deleteWorkspaceHandler,
+  );
+
+  // Any member (except the owner) may leave on their own.
+  app.post(
+    '/:workspaceSlug/leave',
+    {
+      schema: leaveWorkspaceSchema,
+      preHandler: [authenticate, requireWorkspaceMember()],
+    },
+    leaveWorkspaceHandler,
   );
 
   // Member sub-routes

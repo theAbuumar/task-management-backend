@@ -21,8 +21,12 @@ export async function getInvite(prisma: PrismaClient, token: string): Promise<In
   });
 
   if (!invite) throw AppError.notFound('Invite not found');
-  if (invite.accepted_at) throw AppError.conflict('Invite has already been accepted');
-  if (invite.expires_at < new Date()) throw AppError.gone('Invite has expired');
+  if (invite.accepted_at) {
+    throw new AppError(409, 'INVITE_ALREADY_ACCEPTED', 'Invite has already been accepted');
+  }
+  if (invite.expires_at < new Date()) {
+    throw new AppError(410, 'INVITE_EXPIRED', 'Invite has expired');
+  }
 
   return {
     id: invite.id,
@@ -48,8 +52,12 @@ export async function acceptInvite(
   });
 
   if (!invite) throw AppError.notFound('Invite not found');
-  if (invite.accepted_at) throw AppError.conflict('Invite has already been accepted');
-  if (invite.expires_at < new Date()) throw AppError.gone('Invite has expired');
+  if (invite.accepted_at) {
+    throw new AppError(409, 'INVITE_ALREADY_ACCEPTED', 'Invite has already been accepted');
+  }
+  if (invite.expires_at < new Date()) {
+    throw new AppError(410, 'INVITE_EXPIRED', 'Invite has expired');
+  }
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw AppError.notFound('User not found');
@@ -57,7 +65,11 @@ export async function acceptInvite(
   // Validate the accepting user's email matches the invite (prevents token sharing).
   // An account without an email (Telegram-only) can never match an email invite.
   if (!user.email || user.email.toLowerCase() !== invite.email.toLowerCase()) {
-    throw AppError.forbidden('This invite was sent to a different email address');
+    throw new AppError(
+      403,
+      'INVITE_EMAIL_MISMATCH',
+      'This invite was sent to a different email address',
+    );
   }
 
   // Idempotency: if already a member, just mark the invite accepted and return.
