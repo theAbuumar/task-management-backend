@@ -334,3 +334,31 @@ export function reactionTime(d: AnalyticsData) {
     by_department,
   };
 }
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+
+/**
+ * The compact dashboard of the home page (10.F3) in one request: KPI with the
+ * previous period, the department rating one level below the top of the
+ * viewer's area, the worst overdue work and the weekly trend.
+ */
+export function dashboard(d: AnalyticsData, limit: number) {
+  const { tree } = byDepartment(d);
+  // Ректорат → проректораты и отделы: a single root is rated by its children.
+  const level = tree.length === 1 && tree[0]!.children.length > 0 ? tree[0]!.children : tree;
+  const top = overdue(d, limit);
+  return {
+    ...summary(d),
+    departments: level
+      .filter((n) => !isEmpty(n.total))
+      .map((n) => ({
+        id: n.id,
+        name: n.name,
+        short_name: n.short_name,
+        has_children: n.children.length > 0,
+        total: n.total,
+      })),
+    overdue: { total: top.total, items: top.items },
+    trend: trends(d, 'week').items,
+  };
+}

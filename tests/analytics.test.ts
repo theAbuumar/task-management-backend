@@ -267,6 +267,24 @@ describe('analytics — numbers match a hand count', () => {
     );
   });
 
+  it('dashboard: KPI, rating one level below the root, top overdue, trend — one request', async () => {
+    const body = await get(rector, '/analytics/dashboard?limit=1');
+    expect(body.current).toMatchObject({ completed: 2, overdue: 2 });
+    expect(body.departments.map((x: { id: string }) => x.id).sort()).toEqual(
+      [dept.a, dept.b].sort(),
+    );
+    expect(body.departments.find((x: { id: string }) => x.id === dept.a)).toMatchObject({
+      has_children: true,
+      total: { completed: 2, discipline: 50 },
+    });
+    expect(body.overdue.total).toBe(2);
+    expect(body.overdue.items).toHaveLength(1);
+    expect(body.trend.length).toBeGreaterThan(0);
+    // A faculty head is rated by their chairs.
+    const dean = await get(deanA, '/analytics/dashboard');
+    expect(dean.departments.map((x: { id: string }) => x.id)).toEqual([dept.a1]);
+  });
+
   it('filters: project, kind, department with subtree', async () => {
     expect(await summary(rector, `?project=${privateProjectId}`)).toMatchObject({ created: 0 });
     expect(await summary(rector, '?kind=assignment')).toMatchObject({ created: 2, overdue: 1 });

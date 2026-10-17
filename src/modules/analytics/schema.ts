@@ -99,6 +99,27 @@ export const summarySchema = {
   },
 };
 
+export const dashboardSchema = {
+  tags,
+  security,
+  summary:
+    'Home-page dashboard: KPI, department rating, top overdue and weekly trend in one request',
+  description:
+    "The rating level is one step below the top of the viewer's area (a single root is rated by its children). " +
+    '`limit` caps the overdue list.',
+  querystring: analyticsQuerystring,
+  response: {
+    200: envelope({
+      previous_period: period,
+      current: counters,
+      previous: counters,
+      departments: { type: 'array', items: anyObject },
+      overdue: anyObject,
+      trend: { type: 'array', items: anyObject },
+    }),
+  },
+};
+
 export const byDepartmentSchema = {
   tags,
   security,

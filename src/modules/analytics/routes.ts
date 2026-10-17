@@ -15,6 +15,7 @@ import {
   assignmentsXlsxSchema,
   byAssigneeSchema,
   byDepartmentSchema,
+  dashboardSchema,
   byProjectSchema,
   deadlineChangesSchema,
   disciplinePdfSchema,
@@ -62,6 +63,14 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/analytics/summary', { schema: summarySchema, preHandler: member }, async (request) =>
     analytics.summary(await load(app, request, parse(request))),
+  );
+  app.get(
+    '/analytics/dashboard',
+    { schema: dashboardSchema, preHandler: member },
+    async (request) => {
+      const query = parse(request);
+      return analytics.dashboard(await load(app, request, query), query.limit);
+    },
   );
   app.get(
     '/analytics/by-department',

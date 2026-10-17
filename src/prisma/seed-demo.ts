@@ -386,6 +386,9 @@ async function main(): Promise<void> {
     is_read: boolean;
   }[] = [];
 
+  // Project id and state ids per project key, for the distributions below.
+  const projectInfo = new Map<string, { id: string; stateOf: (g: StateGroup) => string; next: number }>();
+
   for (const def of PROJECTS) {
     const project = await prisma.project.create({
       data: {
@@ -407,6 +410,7 @@ async function main(): Promise<void> {
     await prisma.state.createMany({ data: DEFAULT_STATES.map((s) => ({ ...s, project_id: project.id })) });
     const states = await prisma.state.findMany({ where: { project_id: project.id } });
     const stateOf = (g: StateGroup) => states.find((s) => s.group === g)!.id;
+    projectInfo.set(def.key, { id: project.id, stateOf, next: def.titles.length + 1 });
 
     const memberKeys = [...new Set([def.lead, ...def.team, ...def.controllers])];
     await prisma.projectMember.createMany({
@@ -671,6 +675,172 @@ async function main(): Promise<void> {
       }
     }
   }
+
+  // ─── Рассылки подразделениям (6.B1) ───
+  // One accreditation report sent to six units: four done (one late), one under
+  // review, one overdue — «4 из 6 исполнено»; and a fresh one the deans have not
+  // acknowledged yet.
+  type ChildPlan = { dept: string; outcome: 'on_time' | 'late' | 'review' | 'overdue' | 'new' };
+  async function distribution(opts: {
+    project: string;
+    title: string;
+    basis: string;
+    creator: string;
+    controller: string;
+    created: Date;
+    due: Date;
+    children: ChildPlan[];
+  }): Promise<void> {
+    const info = projectInfo.get(opts.project)!;
+    const parent = await prisma.issue.create({
+      data: {
+        workspace_id: wsId,
+        project_id: info.id,
+        sequence_id: info.next++,
+        title: opts.title,
+        description: 'Рассылка подразделениям: каждое готовит свой раздел и сдаёт его на проверку.',
+        state_id: info.stateOf('started'),
+        priority: 'high',
+        kind: 'assignment',
+        controller_id: uid(opts.controller),
+        requires_review: true,
+        basis: opts.basis,
+        is_distribution: true,
+        start_date: opts.created,
+        due_date: opts.due,
+        created_by_id: uid(opts.creator),
+        created_at: opts.created,
+        updated_at: opts.created,
+      },
+    });
+    issueCount += 1;
+    await prisma.issueWatcher.createMany({
+      data: [opts.creator, opts.controller].map((k) => ({ issue_id: parent.id, user_id: uid(k) })),
+      skipDuplicates: true,
+    });
+    await prisma.activityLog.create({
+      data: { workspace_id: wsId, issue_id: parent.id, actor_id: uid(opts.creator), action: 'issue.created', created_at: opts.created },
+    });
+
+    for (const plan of opts.children) {
+      const dept = DEPARTMENTS.find((d) => d.key === plan.dept)!;
+      const head = PEOPLE.find((p) => p.heads && p.dept === plan.dept)!;
+      const done = plan.outcome === 'on_time' || plan.outcome === 'late';
+      const completed =
+        plan.outcome === 'on_time' ? plusDays(opts.due, -between(1, 3)) : plan.outcome === 'late' ? plusDays(opts.due, 1) : null;
+      const group: StateGroup = done ? 'completed' : plan.outcome === 'review' ? 'review' : plan.outcome === 'new' ? 'unstarted' : 'started';
+      const child = await prisma.issue.create({
+        data: {
+          workspace_id: wsId,
+          project_id: info.id,
+          sequence_id: info.next++,
+          title: `${opts.title} — ${dept.short ?? dept.name}`,
+          description: parent.description,
+          state_id: info.stateOf(group),
+          priority: 'high',
+          kind: 'assignment',
+          controller_id: uid(opts.controller),
+          requires_review: true,
+          basis: opts.basis,
+          parent_id: parent.id,
+          department_id: deptId.get(plan.dept)!,
+          start_date: opts.created,
+          due_date: opts.due,
+          completed_at: completed,
+          created_by_id: uid(opts.creator),
+          created_at: opts.created,
+          updated_at: completed ?? opts.created,
+        },
+      });
+      issueCount += 1;
+      await prisma.issueAssignee.create({
+        data: {
+          issue_id: child.id,
+          user_id: uid(head.key),
+          is_primary: true,
+          acknowledged_at: plan.outcome === 'new' ? null : plusDays(opts.created, 0.2 + rand()),
+          created_at: opts.created,
+        },
+      });
+      await prisma.issueWatcher.createMany({
+        data: [opts.creator, opts.controller, head.key].map((k) => ({ issue_id: child.id, user_id: uid(k) })),
+        skipDuplicates: true,
+      });
+      const activity: { action: string; actor: string; when: Date }[] = [
+        { action: 'issue.created', actor: opts.creator, when: opts.created },
+      ];
+      if (plan.outcome !== 'new') activity.push({ action: 'issue.acknowledged', actor: head.key, when: plusDays(opts.created, 0.3) });
+      if (done && completed) {
+        const submit = plusDays(completed, -0.3);
+        await prisma.issueReview.create({
+          data: {
+            workspace_id: wsId,
+            issue_id: child.id,
+            submitted_by_id: uid(head.key),
+            report: 'Раздел отчёта подготовлен, документы приложены.',
+            decision: 'approved',
+            decided_by_id: uid(opts.controller),
+            submitted_at: submit,
+            decided_at: completed,
+          },
+        });
+        activity.push({ action: 'issue.review_submitted', actor: head.key, when: submit });
+        activity.push({ action: 'issue.review_approved', actor: opts.controller, when: completed });
+      }
+      if (plan.outcome === 'review') {
+        const submit = at(0, 9);
+        await prisma.issueReview.create({
+          data: {
+            workspace_id: wsId,
+            issue_id: child.id,
+            submitted_by_id: uid(head.key),
+            report: 'Направляю раздел о кадровом и материально-техническом обеспечении.',
+            submitted_at: submit,
+          },
+        });
+        activity.push({ action: 'issue.review_submitted', actor: head.key, when: submit });
+        notifications.push({ recipient_id: uid(opts.controller), actor_id: uid(head.key), type: 'review_requested', issue_id: child.id, created_at: submit, is_read: false });
+      }
+      if (plan.outcome === 'new') {
+        notifications.push({ recipient_id: uid(head.key), actor_id: uid(opts.creator), type: 'issue_assigned', issue_id: child.id, created_at: opts.created, is_read: false });
+      }
+      await prisma.activityLog.createMany({
+        data: activity.map((a) => ({ workspace_id: wsId, issue_id: child.id, actor_id: uid(a.actor), action: a.action, created_at: a.when })),
+      });
+    }
+  }
+
+  await distribution({
+    project: 'accr',
+    title: 'Подготовить раздел отчёта о самообследовании',
+    basis: 'Приказ ректора №214 о подготовке к аккредитации',
+    creator: 'pr_edu',
+    controller: 'pr_edu',
+    created: at(-16, 10),
+    due: at(-2, 18),
+    children: [
+      { dept: 'econ', outcome: 'on_time' },
+      { dept: 'itf', outcome: 'on_time' },
+      { dept: 'umu', outcome: 'on_time' },
+      { dept: 'grad', outcome: 'late' },
+      { dept: 'it', outcome: 'review' },
+      { dept: 'phil', outcome: 'overdue' },
+    ],
+  });
+  await distribution({
+    project: 'adm',
+    title: 'Предоставить сведения о трудоустройстве выпускников 2026 года',
+    basis: 'Протокол заседания ректората №15',
+    creator: 'rector',
+    controller: 'rector',
+    created: at(-1, 11),
+    due: at(9, 18),
+    children: [
+      { dept: 'econ', outcome: 'new' },
+      { dept: 'itf', outcome: 'new' },
+      { dept: 'phil', outcome: 'new' },
+    ],
+  });
 
   await prisma.notification.createMany({
     data: notifications.map((n) => ({ ...n, workspace_id: wsId })),
