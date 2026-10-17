@@ -77,6 +77,20 @@ enum IssueKind {
   assignment
 }
 
+// Outcome of a hand-in for review (Ф5).
+enum ReviewDecision {
+  pending
+  approved
+  returned
+}
+
+// Request to move an assignment's deadline (Ф5).
+enum DeadlineRequestStatus {
+  pending
+  approved
+  rejected
+}
+
 // The full list is fixed up front (ADR-020) so later phases don't alter the enum.
 enum NotificationType {
   issue_assigned
@@ -153,25 +167,30 @@ model User {
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
 
-  headed_departments      Department[]            @relation("DepartmentHead")
-  controlled_issues       Issue[]                 @relation("IssueController")
-  identities              AuthIdentity[]
-  refresh_tokens          RefreshToken[]
-  workspace_memberships   WorkspaceMember[]
-  project_memberships     ProjectMember[]
-  owned_workspaces        Workspace[]             @relation("WorkspaceOwner")
-  led_projects            Project[]               @relation("ProjectLead")
-  led_modules             Module[]                @relation("ModuleLead")
-  created_issues          Issue[]                 @relation("IssueCreatedBy")
-  assigned_issues         IssueAssignee[]
-  comments                Comment[]
-  activities              ActivityLog[]           @relation("ActivityActor")
-  attachments             Attachment[]
-  notifications           Notification[]          @relation("NotificationRecipient")
-  triggered_notifications Notification[]          @relation("NotificationActor")
-  sent_invites            WorkspaceInvite[]
-  member_invites_sent     WorkspaceMemberInvite[] @relation("MemberInviteInviter")
-  member_invites_received WorkspaceMemberInvite[] @relation("MemberInviteTarget")
+  headed_departments        Department[]            @relation("DepartmentHead")
+  controlled_issues         Issue[]                 @relation("IssueController")
+  submitted_reviews         IssueReview[]           @relation("ReviewSubmittedBy")
+  decided_reviews           IssueReview[]           @relation("ReviewDecidedBy")
+  deadline_requests         DeadlineChangeRequest[] @relation("DeadlineRequestedBy")
+  decided_deadline_requests DeadlineChangeRequest[] @relation("DeadlineDecidedBy")
+  watched_issues            IssueWatcher[]
+  identities                AuthIdentity[]
+  refresh_tokens            RefreshToken[]
+  workspace_memberships     WorkspaceMember[]
+  project_memberships       ProjectMember[]
+  owned_workspaces          Workspace[]             @relation("WorkspaceOwner")
+  led_projects              Project[]               @relation("ProjectLead")
+  led_modules               Module[]                @relation("ModuleLead")
+  created_issues            Issue[]                 @relation("IssueCreatedBy")
+  assigned_issues           IssueAssignee[]
+  comments                  Comment[]
+  activities                ActivityLog[]           @relation("ActivityActor")
+  attachments               Attachment[]
+  notifications             Notification[]          @relation("NotificationRecipient")
+  triggered_notifications   Notification[]          @relation("NotificationActor")
+  sent_invites              WorkspaceInvite[]
+  member_invites_sent       WorkspaceMemberInvite[] @relation("MemberInviteInviter")
+  member_invites_received   WorkspaceMemberInvite[] @relation("MemberInviteTarget")
 }
 
 // Rotating refresh tokens. One row per live token; revoked_at set on logout/rotation.
@@ -413,23 +432,27 @@ model Issue {
   updated_at      DateTime      @updatedAt
   deleted_at      DateTime?
 
-  workspace      Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
-  project        Project         @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  state          State           @relation(fields: [state_id], references: [id])
-  cycle          Cycle?          @relation(fields: [cycle_id], references: [id], onDelete: SetNull)
-  created_by     User            @relation("IssueCreatedBy", fields: [created_by_id], references: [id])
-  controller     User?           @relation("IssueController", fields: [controller_id], references: [id], onDelete: SetNull)
-  parent         Issue?          @relation("SubIssue", fields: [parent_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  children       Issue[]         @relation("SubIssue")
-  assignees      IssueAssignee[]
-  labels         IssueLabel[]
-  comments       Comment[]
-  modules        ModuleIssue[]
-  outgoing_links IssueLink[]     @relation("IssueLinkSource")
-  incoming_links IssueLink[]     @relation("IssueLinkTarget")
-  activities     ActivityLog[]
-  attachments    Attachment[]
-  notifications  Notification[]
+  workspace         Workspace               @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  project           Project                 @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  state             State                   @relation(fields: [state_id], references: [id])
+  cycle             Cycle?                  @relation(fields: [cycle_id], references: [id], onDelete: SetNull)
+  created_by        User                    @relation("IssueCreatedBy", fields: [created_by_id], references: [id])
+  controller        User?                   @relation("IssueController", fields: [controller_id], references: [id], onDelete: SetNull)
+  parent            Issue?                  @relation("SubIssue", fields: [parent_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children          Issue[]                 @relation("SubIssue")
+  assignees         IssueAssignee[]
+  labels            IssueLabel[]
+  comments          Comment[]
+  modules           ModuleIssue[]
+  outgoing_links    IssueLink[]             @relation("IssueLinkSource")
+  incoming_links    IssueLink[]             @relation("IssueLinkTarget")
+  activities        ActivityLog[]
+  attachments       Attachment[]
+  notifications     Notification[]
+  reviews           IssueReview[]
+  deadline_requests DeadlineChangeRequest[]
+  watchers          IssueWatcher[]
+  reminders         ReminderLog[]
 
   @@unique([project_id, sequence_id])
   @@index([workspace_id])
@@ -615,11 +638,14 @@ model Attachment {
   file_size      Int
   mime_type      String
   storage_key    String   @unique
+  // Set when the file was handed in as part of a review report (Ф5).
+  review_id      String?
   created_at     DateTime @default(now())
 
-  workspace   Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
-  issue       Issue     @relation(fields: [issue_id], references: [id], onDelete: Cascade)
-  uploaded_by User      @relation(fields: [uploaded_by_id], references: [id])
+  workspace   Workspace    @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  issue       Issue        @relation(fields: [issue_id], references: [id], onDelete: Cascade)
+  uploaded_by User         @relation(fields: [uploaded_by_id], references: [id])
+  review      IssueReview? @relation(fields: [review_id], references: [id], onDelete: SetNull)
 
   @@index([workspace_id])
   @@index([issue_id])
@@ -703,4 +729,81 @@ model WorkspaceMemberInvite {
 
   @@index([target_user_id, status])
   @@index([workspace_id])
+}
+
+// ─── Execution control (Ф5) ──────────────────────────────────────────────────
+
+// One hand-in of an assignment for review: the assignee's report, then the
+// controller's decision (approved → done, returned → back to work).
+model IssueReview {
+  id               String         @id @default(uuid())
+  workspace_id     String
+  issue_id         String
+  submitted_by_id  String
+  report           String?
+  decision         ReviewDecision @default(pending)
+  decided_by_id    String?
+  decision_comment String?
+  submitted_at     DateTime       @default(now())
+  decided_at       DateTime?
+
+  issue        Issue        @relation(fields: [issue_id], references: [id], onDelete: Cascade)
+  submitted_by User         @relation("ReviewSubmittedBy", fields: [submitted_by_id], references: [id])
+  decided_by   User?        @relation("ReviewDecidedBy", fields: [decided_by_id], references: [id])
+  attachments  Attachment[]
+
+  @@index([issue_id])
+  @@index([workspace_id, decision])
+}
+
+// Assignee asks to move the deadline; the controller approves or rejects.
+model DeadlineChangeRequest {
+  id               String                @id @default(uuid())
+  workspace_id     String
+  issue_id         String
+  requested_by_id  String
+  old_due_date     DateTime?
+  new_due_date     DateTime
+  reason           String
+  status           DeadlineRequestStatus @default(pending)
+  decided_by_id    String?
+  decision_comment String?
+  created_at       DateTime              @default(now())
+  decided_at       DateTime?
+
+  issue        Issue @relation(fields: [issue_id], references: [id], onDelete: Cascade)
+  requested_by User  @relation("DeadlineRequestedBy", fields: [requested_by_id], references: [id])
+  decided_by   User? @relation("DeadlineDecidedBy", fields: [decided_by_id], references: [id])
+
+  @@index([issue_id])
+  @@index([workspace_id, status])
+}
+
+// People following an issue (auto: author, assignees, controller, commenters).
+model IssueWatcher {
+  issue_id   String
+  user_id    String
+  created_at DateTime @default(now())
+
+  issue Issue @relation(fields: [issue_id], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@id([issue_id, user_id])
+  @@index([user_id])
+}
+
+// Sent deadline reminders / escalations — the unique key makes each one fire once.
+model ReminderLog {
+  id         String   @id @default(uuid())
+  issue_id   String
+  user_id    String
+  // due_soon:<days> | overdue | escalated
+  kind       String
+  // Local date (workspace time zone) the reminder belongs to, YYYY-MM-DD.
+  for_date   String
+  created_at DateTime @default(now())
+
+  issue Issue @relation(fields: [issue_id], references: [id], onDelete: Cascade)
+
+  @@unique([issue_id, user_id, kind, for_date])
 }

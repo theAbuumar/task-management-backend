@@ -26,6 +26,14 @@ export const ACTIVITY_ACTIONS = {
   COMMENT_DELETED: 'comment.deleted',
   ATTACHMENT_ADDED: 'issue.attachment_added',
   ATTACHMENT_REMOVED: 'issue.attachment_removed',
+  // Execution control (Ф5).
+  REVIEW_SUBMITTED: 'issue.review_submitted',
+  REVIEW_APPROVED: 'issue.review_approved',
+  REVIEW_RETURNED: 'issue.review_returned',
+  ACKNOWLEDGED: 'issue.acknowledged',
+  DEADLINE_REQUESTED: 'issue.deadline_requested',
+  DEADLINE_APPROVED: 'issue.deadline_approved',
+  DEADLINE_REJECTED: 'issue.deadline_rejected',
 } as const;
 
 export interface ActivityEntry {

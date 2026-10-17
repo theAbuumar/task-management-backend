@@ -32,7 +32,16 @@ export type ErrorCode =
   | 'INVITE_EXPIRED'
   | 'INVITE_ALREADY_ACCEPTED'
   | 'INVITE_EMAIL_MISMATCH'
-  | 'DEPARTMENT_CYCLE';
+  | 'DEPARTMENT_CYCLE'
+  | 'REVIEW_REQUIRED'
+  | 'REVIEW_PENDING'
+  | 'NO_PENDING_REVIEW'
+  | 'NO_REVIEW_STATE'
+  | 'REPORT_REQUIRED'
+  | 'NOT_REVIEWER'
+  | 'NOT_ASSIGNEE'
+  | 'DEADLINE_CHANGE_FORBIDDEN'
+  | 'DEADLINE_REQUEST_PENDING';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -62,6 +71,15 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
   INVITE_ALREADY_ACCEPTED: 'The invitation has already been accepted',
   INVITE_EMAIL_MISMATCH: 'The invitation was sent to a different email address',
   DEPARTMENT_CYCLE: 'A department cannot be moved under itself or its own sub-department',
+  REVIEW_REQUIRED: 'The assignment must be handed in for review; only its controller can close it',
+  REVIEW_PENDING: 'The work is already waiting for review',
+  NO_PENDING_REVIEW: 'There is no hand-in waiting for review',
+  NO_REVIEW_STATE: 'The project has no "review" state to move the work into',
+  REPORT_REQUIRED: 'A written report is required to hand the work in',
+  NOT_REVIEWER: 'Only the controller (or the author) can accept or return this work',
+  NOT_ASSIGNEE: 'Only an assignee of this issue can do this',
+  DEADLINE_CHANGE_FORBIDDEN: 'Only the controller can change this deadline — request a change instead',
+  DEADLINE_REQUEST_PENDING: 'A deadline change request is already waiting for a decision',
 };
 
 /**

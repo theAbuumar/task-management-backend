@@ -30,6 +30,60 @@
 
 ---
 
+## 2026-10-17 — Ф5 (бэк): контроль исполнения — проверка, ознакомление, переносы сроков, наблюдатели, напоминания и эскалация
+**Фаза:** Ф5 · **Тип:** новая функция · **Ветка:** `develop`
+**Что изменено:**
+- **Миграция** `execution_control`:
+  - модели `IssueReview` (сдача на проверку и решение), `DeadlineChangeRequest`, `IssueWatcher`, `ReminderLog` (уникальный ключ — защита от повторных напоминаний);
+  - enum `ReviewDecision` и `DeadlineRequestStatus`;
+  - `Attachment.review_id` (файлы отчёта).
+- **5.B2** Цикл проверки (`.../issues/:issueId/review/*`):
+  - `submit`: отчёт и вложения → состояние «На проверке», контролёр получает уведомление;
+  - `approve` → «Готово»;
+  - `return` (комментарий обязателен) → «В работе», замечание попадает в комментарии;
+  - `GET .../reviews` — история.
+  - Решает контролёр, а если его нет — автор. Admin может всегда. Перетаскивание карточки на доске запускает тот же цикл: переход в «На проверке» открывает сдачу, выход из неё принимает или возвращает работу.
+- **5.B3** Исполнитель не может закрыть поручение с `requires_review` (`409 REVIEW_REQUIRED`).
+- **5.B4** «Ознакомлен»: `POST .../acknowledge` ставит `acknowledged_at`, контролёр получает уведомление.
+- **5.B5** Перенос срока: `POST .../deadline-requests` (дата и причина; одна заявка в ожидании), `POST .../deadline-requests/:id/approve|reject` (контролёр), `GET .../deadline-requests`. Исполнитель не может напрямую менять срок поручения (`403 DEADLINE_CHANGE_FORBIDDEN`). Число одобренных переносов отдаётся в `issue._count.deadline_requests`.
+- **5.B7** Наблюдатели:
+  - автор, исполнители и контролёр подписываются автоматически, комментатор — тоже;
+  - `GET/POST .../watchers`, `DELETE .../watchers/me`;
+  - наблюдатели получают `state_changed` и `comment_added`;
+  - фильтр `watcher=me`.
+- **5.B6 / 5.B8** Напоминания и эскалация (`modules/control/reminders.ts`), всё в часовом поясе пространства:
+  - `due_soon` за N дней (по умолчанию 3, 1 и в день срока);
+  - `overdue` раз в день;
+  - `escalated` один раз при пороге просрочки — руководителю подразделения ответственного и контролёру.
+  - Каждое напоминание уходит ровно один раз (`ReminderLog`), в приложение и в Telegram или на почту (`lib/deliver.ts`).
+  - Планировщик `plugins/scheduler.ts` срабатывает раз в 5 минут, держит транзакционный advisory-lock, отключается через `JOBS_ENABLED`.
+  - Ручной запуск: `POST /workspaces/:slug/control/run-reminders` (admin).
+- **5.B9** Настройки: `GET/PATCH /workspaces/:slug/control/settings` — `reminder_days`, `reminder_hour`, `escalation_days`, `require_report` (при `REPORT_REQUIRED` без отчёта сдать нельзя).
+- **5.B10** Фильтры списка задач: `overdue`, `due_within`, `open`, `review_pending`, `acknowledged`, `watcher`, `me` вместо id в `assignee`, `controller`, `created_by` и `watcher`.
+- В ответе задачи появились `state { id, name, group, color }` и `_count { watchers, deadline_requests }`.
+- Новые действия в истории: `issue.review_submitted`, `issue.review_approved`, `issue.review_returned`, `issue.acknowledged`, `issue.deadline_requested`, `issue.deadline_approved`, `issue.deadline_rejected`.
+**Файлы:**
+- новые: `src/modules/control/{rules,service,schema,routes,admin-routes,reminders}.ts`, `src/plugins/scheduler.ts`, `src/lib/{tz,deliver,plural,control-settings}.ts`, `tests/execution-control.test.ts`, миграция `20261017114432_execution_control`;
+- изменены: `src/modules/issues/{service,schema,controller}.ts`, `src/modules/comments/service.ts`, `src/lib/{notifications,activity,errors}.ts`, `src/config/env.ts`, `src/app.ts`, `src/prisma/schema.prisma`.
+**API:**
+- новые:
+  - `POST .../issues/:id/review/submit|approve|return`;
+  - `GET .../issues/:id/reviews`;
+  - `POST .../issues/:id/acknowledge`;
+  - `GET/POST .../issues/:id/deadline-requests`;
+  - `POST .../deadline-requests/:rid/approve|reject`;
+  - `GET/POST .../issues/:id/watchers`;
+  - `DELETE .../watchers/me`;
+  - `GET/PATCH /workspaces/:slug/control/settings`;
+  - `POST /workspaces/:slug/control/run-reminders`.
+- новые фильтры в `GET .../issues`; новые поля `state` и `_count` в ответе задачи.
+- новые коды ошибок: `REVIEW_REQUIRED`, `REVIEW_PENDING`, `NO_PENDING_REVIEW`, `NO_REVIEW_STATE`, `REPORT_REQUIRED`, `NOT_REVIEWER`, `NOT_ASSIGNEE`, `DEADLINE_CHANGE_FORBIDDEN`, `DEADLINE_REQUEST_PENDING`.
+**БД:** `20261017114432_execution_control`
+**Конфигурация:** `JOBS_ENABLED` (по умолчанию включено, под тестами выключено).
+**Тесты:** `tests/execution-control.test.ts` (11 сценариев): ознакомление, запреты, переносы, полный цикл проверки, в том числе перетаскиванием, наблюдатели, фильтры, напоминания и эскалация (однократность, руководитель подразделения), ручной запуск, настройки.
+**Как проверить:** `bash dev/test-backend.sh tests/execution-control.test.ts`
+**Совместимость:** фронт — UI Ф5 (блок «Контроль» в задаче, кнопки, индикаторы сроков, наблюдение) делается следующим шагом.
+
 ## 2026-10-17 — Ф3 (бэк): доменная модель университета — оргструктура, ФИО, поручения с контролёром, видимость проектов, аватары и логотипы
 **Фаза:** Ф3 (+ 2.B1) · **Тип:** новая функция · **Ветка:** `phase-3/domain`. В `main` не влита, пока не подтверждён порядок миграций на проде.
 **Что изменено:**

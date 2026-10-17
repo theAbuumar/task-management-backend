@@ -6,6 +6,9 @@ const SORT_FIELDS = ['created_at', 'updated_at', 'priority', 'due_date', 'sort_o
 const SORT_ORDERS = ['asc', 'desc'] as const;
 const GROUP_FIELDS = ['state', 'priority', 'assignee'] as const;
 const KINDS = ['task', 'assignment'] as const;
+const userRef = z.union([z.string().uuid(), z.literal('me')]);
+// Query strings carry booleans as text.
+const boolFlag = z.enum(['true', 'false']).transform((v) => v === 'true');
 
 export const CreateIssueBodySchema = z.object({
   title: z.string().min(1).max(500),
@@ -52,10 +55,18 @@ export const IssueFilterQuerySchema = z.object({
   label: z.union([z.string(), z.array(z.string())]).optional(),
   cycle: z.string().uuid().optional(),
   module: z.string().uuid().optional(),
-  created_by: z.string().uuid().optional(),
+  // `me` is accepted wherever a user id is expected (assignee/created_by/controller/watcher).
+  created_by: userRef.optional(),
   parent_id: z.string().uuid().optional(),
   kind: z.enum(KINDS).optional(),
-  controller: z.string().uuid().optional(),
+  controller: userRef.optional(),
+  watcher: userRef.optional(),
+  // Execution-control filters (Ф5), computed in the workspace time zone.
+  overdue: boolFlag.optional(),
+  due_within: z.coerce.number().int().min(0).max(365).optional(),
+  open: boolFlag.optional(),
+  review_pending: boolFlag.optional(),
+  acknowledged: boolFlag.optional(),
   search: z.string().optional(),
   due_before: z.string().datetime().optional(),
   due_after: z.string().datetime().optional(),
@@ -106,6 +117,9 @@ const issueShape = {
     requires_review: { type: 'boolean' },
     basis: { type: 'string', nullable: true },
     controller: { type: 'object', nullable: true, additionalProperties: true },
+    state: { type: 'object', additionalProperties: true },
+    // { watchers, deadline_changes } — approved deadline moves count as "переносы".
+    _count: { type: 'object', additionalProperties: true },
     sort_order: { type: 'number' },
     created_at: { type: 'string', format: 'date-time' },
     updated_at: { type: 'string', format: 'date-time' },
@@ -130,10 +144,20 @@ export const listIssuesSchema: FastifySchema = {
       label: { oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
       cycle: { type: 'string', format: 'uuid' },
       module: { type: 'string', format: 'uuid' },
-      created_by: { type: 'string', format: 'uuid' },
+      created_by: { type: 'string' },
       parent_id: { type: 'string' },
       kind: { type: 'string', enum: KINDS },
-      controller: { type: 'string', format: 'uuid' },
+      controller: { type: 'string', description: 'user id or `me`' },
+      watcher: { type: 'string', description: 'user id or `me`' },
+      overdue: { type: 'string', enum: ['true', 'false'] },
+      due_within: { type: 'integer', minimum: 0, maximum: 365 },
+      open: { type: 'string', enum: ['true', 'false'] },
+      review_pending: { type: 'string', enum: ['true', 'false'] },
+      acknowledged: {
+        type: 'string',
+        enum: ['true', 'false'],
+        description: '`false` = assignments where I am an assignee and have not acknowledged',
+      },
       search: { type: 'string' },
       due_before: { type: 'string' },
       due_after: { type: 'string' },

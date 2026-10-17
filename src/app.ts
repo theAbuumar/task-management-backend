@@ -22,6 +22,7 @@ import prismaPlugin from './plugins/prisma.js';
 import storagePlugin from './plugins/storage.js';
 import authPlugin from './plugins/auth-hook.js';
 import workspacePlugin from './plugins/workspace-hook.js';
+import schedulerPlugin from './plugins/scheduler.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { workspaceRoutes } from './modules/workspaces/routes.js';
 import { projectRoutes } from './modules/projects/routes.js';
@@ -40,6 +41,8 @@ import { memberInviteRoutes } from './modules/member-invites/routes.js';
 import { departmentRoutes } from './modules/departments/routes.js';
 import { mediaRoutes } from './modules/media/routes.js';
 import { workspaceIssueRoutes } from './modules/issues/workspace-routes.js';
+import { controlRoutes } from './modules/control/routes.js';
+import { controlAdminRoutes } from './modules/control/admin-routes.js';
 
 export interface BuildAppOptions {
   /** Pino logger options, or `false`/`true` to disable/enable the default logger. */
@@ -131,6 +134,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(storagePlugin);
   await app.register(authPlugin);
   await app.register(workspacePlugin);
+  await app.register(schedulerPlugin);
 
   // --- Routes ----------------------------------------------------------------
   // Liveness/readiness probe. Liveness always returns ok if the process is up;
@@ -176,6 +180,12 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   });
   await app.register(issueRelationRoutes, {
     prefix: '/api/v1/workspaces/:workspaceSlug/projects/:projectId/issues/:issueId/relations',
+  });
+  await app.register(controlRoutes, {
+    prefix: '/api/v1/workspaces/:workspaceSlug/projects/:projectId/issues/:issueId',
+  });
+  await app.register(controlAdminRoutes, {
+    prefix: '/api/v1/workspaces/:workspaceSlug/control',
   });
   await app.register(activityRoutes, {
     prefix: '/api/v1/workspaces/:workspaceSlug/projects/:projectId/issues/:issueId/activity',

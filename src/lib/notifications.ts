@@ -26,6 +26,11 @@ export interface NotificationInput {
   issue_id?: string | null;
   /** Optional id of the triggering entity (e.g. the comment), for deep-linking. */
   entity_id?: string | null;
+  /**
+   * System events (deadline reminders) have no human actor; the row still needs
+   * one, so callers pass a stand-in and set this to keep them as a recipient.
+   */
+  include_actor?: boolean;
 }
 
 /**
@@ -33,7 +38,9 @@ export interface NotificationInput {
  * No-op when no recipients remain after filtering.
  */
 export async function notify(db: DbClient, input: NotificationInput): Promise<void> {
-  const recipients = [...new Set(input.recipient_ids)].filter((id) => id !== input.actor_id);
+  const recipients = [...new Set(input.recipient_ids)].filter(
+    (id) => input.include_actor || id !== input.actor_id,
+  );
   if (recipients.length === 0) return;
 
   await db.notification.createMany({

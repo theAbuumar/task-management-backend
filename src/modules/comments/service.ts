@@ -2,6 +2,7 @@ import type { PrismaClient, Prisma } from '@prisma/client';
 import { AppError } from '../../lib/errors.js';
 import { recordActivity, ACTIVITY_ACTIONS } from '../../lib/activity.js';
 import { notify, parseMentions } from '../../lib/notifications.js';
+import { addWatchers } from '../control/rules.js';
 import type { CreateCommentBody, UpdateCommentBody } from './schema.js';
 
 type CommentWithAuthor = Prisma.CommentGetPayload<{
@@ -55,15 +56,25 @@ export async function createComment(
     if (!parent) throw AppError.badRequest('parent_comment_id does not exist on this issue');
   }
 
-  // Recipients of a comment notification: the issue's assignees and its creator
-  // (TZ §5.18 — "comment on watched issue"; with no watch model in the MVP the
-  // people involved with the issue stand in for watchers).
+  // Recipients of a comment notification: everyone watching the issue (author,
+  // assignees and controller are auto-watchers, Ф5), plus the people involved in
+  // case a watch row is missing for older issues.
   const issue = await prisma.issue.findUnique({
     where: { id: issueId },
-    select: { created_by_id: true, assignees: { select: { user_id: true } } },
+    select: {
+      created_by_id: true,
+      controller_id: true,
+      assignees: { select: { user_id: true } },
+      watchers: { select: { user_id: true } },
+    },
   });
   const commentRecipients = issue
-    ? [issue.created_by_id, ...issue.assignees.map((a) => a.user_id)]
+    ? [
+        issue.created_by_id,
+        ...(issue.controller_id ? [issue.controller_id] : []),
+        ...issue.assignees.map((a) => a.user_id),
+        ...issue.watchers.map((w) => w.user_id),
+      ]
     : [];
 
   // Resolve @mentions to workspace members (matched on the local part of their
@@ -87,6 +98,8 @@ export async function createComment(
       action: ACTIVITY_ACTIONS.COMMENT_CREATED,
       new_value: comment.id,
     });
+    // Commenting on an issue means following it.
+    await addWatchers(tx, issueId, [authorId]);
 
     // Mentions take precedence over the generic comment notification so a
     // mentioned recipient gets a single, more specific `mentioned` row.

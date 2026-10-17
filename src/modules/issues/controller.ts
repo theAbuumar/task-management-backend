@@ -19,6 +19,7 @@ export async function listIssuesHandler(
     request.workspace.id,
     projectId,
     query,
+    { userId: request.userId, timeZone: request.workspace.timezone },
   );
   reply.send(result);
 }

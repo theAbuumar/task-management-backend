@@ -23,6 +23,11 @@ export const envSchema = z
 
     // --- Logging ---
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
+    /** Run background jobs (deadline reminders) in this process. Off under test by default. */
+    JOBS_ENABLED: z
+      .enum(['true', 'false'])
+      .optional()
+      .transform((v) => (v === undefined ? process.env.NODE_ENV !== 'test' : v === 'true')),
 
     // --- Database ---
     DATABASE_URL: z

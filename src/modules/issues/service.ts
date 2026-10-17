@@ -5,6 +5,23 @@ import { notify } from '../../lib/notifications.js';
 import { sendIssueNotification, telegramConfigured } from '../auth/telegram.service.js';
 import { sendIssueNotificationEmail } from '../../lib/email.js';
 import type { CreateIssueBody, UpdateIssueBody, IssueFilterQuery } from './schema.js';
+import { deliverIssueEvent } from '../../lib/deliver.js';
+import { addDays, localDate, startOfLocalDay } from '../../lib/tz.js';
+import {
+  OPEN_GROUPS,
+  addWatchers,
+  closePendingReview,
+  isReviewer,
+  memberRole,
+  openReview,
+  watcherIds,
+} from '../control/rules.js';
+
+/** Who is asking + the workspace clock — needed for `me` and date filters. */
+export interface IssueViewer {
+  userId: string;
+  timeZone: string;
+}
 
 /** Coerce an issue field value to its stored string form for the activity trail. */
 function activityValue(value: unknown): string | null {
@@ -39,6 +56,13 @@ type IssueWithRelations = Prisma.IssueGetPayload<{
     };
     labels: { include: { label: true } };
     controller: { select: { id: true; email: true; display_name: true; avatar_url: true } };
+    state: { select: { id: true; name: true; group: true; color: true } };
+    _count: {
+      select: {
+        watchers: true;
+        deadline_requests: { where: { status: 'approved' } };
+      };
+    };
   };
 }>;
 
@@ -52,6 +76,13 @@ const INCLUDE_RELATIONS = {
   },
   labels: { include: { label: true } },
   controller: { select: USER_BRIEF },
+  state: { select: { id: true, name: true, group: true, color: true } },
+  _count: {
+    select: {
+      watchers: true,
+      deadline_requests: { where: { status: 'approved' } },
+    },
+  },
 } satisfies Prisma.IssueInclude;
 
 /** The controller of an assignment must be a member of the workspace. */
@@ -119,27 +150,64 @@ function dateRange(after?: string, before?: string): Prisma.DateTimeFilter | und
 }
 
 /** Translate the validated filter query into a Prisma `where` clause. */
-function buildWhere(projectId: string, query: IssueFilterQuery): Prisma.IssueWhereInput {
+export function buildWhere(
+  projectId: string | undefined,
+  query: IssueFilterQuery,
+  viewer?: IssueViewer,
+): Prisma.IssueWhereInput {
+  const me = (id: string | undefined) => (id === 'me' ? viewer?.userId : id);
   const states = normalizeArrayParam(query.state);
   const priorities = normalizeArrayParam(query.priority);
-  const assignees = normalizeArrayParam(query.assignee);
+  const assignees = normalizeArrayParam(query.assignee)?.map((a) => me(a) ?? a);
   const labels = normalizeArrayParam(query.label);
   const dueDate = dateRange(query.due_after, query.due_before);
   const createdAt = dateRange(query.created_after, query.created_before);
 
+  // Calendar-day boundaries in the workspace zone for the deadline filters.
+  const tz = viewer?.timeZone ?? 'UTC';
+  const today = localDate(new Date(), tz);
+  const startToday = startOfLocalDay(today, tz);
+  const and: Prisma.IssueWhereInput[] = [];
+  if (query.overdue) {
+    and.push({ due_date: { lt: startToday } }, { state: { group: { in: OPEN_GROUPS } } });
+  }
+  if (query.due_within !== undefined) {
+    and.push(
+      { due_date: { gte: startToday, lt: startOfLocalDay(addDays(today, query.due_within + 1), tz) } },
+      { state: { group: { in: OPEN_GROUPS } } },
+    );
+  }
+  if (query.open !== undefined) {
+    and.push({ state: { group: query.open ? { in: OPEN_GROUPS } : { notIn: OPEN_GROUPS } } });
+  }
+  if (query.review_pending !== undefined) {
+    and.push({ state: { group: query.review_pending ? 'review' : { not: 'review' } } });
+  }
+  if (query.acknowledged !== undefined && viewer) {
+    and.push(
+      query.acknowledged
+        ? { assignees: { some: { user_id: viewer.userId, acknowledged_at: { not: null } } } }
+        : { assignees: { some: { user_id: viewer.userId, acknowledged_at: null } } },
+    );
+  }
+  if (query.watcher !== undefined) {
+    and.push({ watchers: { some: { user_id: me(query.watcher) } } });
+  }
+
   return {
-    project_id: projectId,
+    ...(projectId !== undefined && { project_id: projectId }),
     deleted_at: null,
+    ...(and.length > 0 && { AND: and }),
     ...(states && { state_id: { in: states } }),
     ...(priorities && { priority: { in: priorities as Issue['priority'][] } }),
     ...(assignees && { assignees: { some: { user_id: { in: assignees } } } }),
     ...(labels && { labels: { some: { label_id: { in: labels } } } }),
     ...(query.cycle !== undefined && { cycle_id: query.cycle }),
     ...(query.module !== undefined && { modules: { some: { module_id: query.module } } }),
-    ...(query.created_by !== undefined && { created_by_id: query.created_by }),
+    ...(query.created_by !== undefined && { created_by_id: me(query.created_by) }),
     ...(query.parent_id !== undefined && { parent_id: query.parent_id }),
     ...(query.kind !== undefined && { kind: query.kind }),
-    ...(query.controller !== undefined && { controller_id: query.controller }),
+    ...(query.controller !== undefined && { controller_id: me(query.controller) }),
     ...(query.search && {
       OR: [
         { title: { contains: query.search, mode: 'insensitive' as const } },
@@ -173,10 +241,11 @@ export async function listIssues(
   workspaceId: string,
   projectId: string,
   query: IssueFilterQuery,
+  viewer?: IssueViewer,
 ): Promise<ListIssuesResult> {
   await resolveProject(prisma, workspaceId, projectId);
 
-  const where = buildWhere(projectId, query);
+  const where = buildWhere(projectId, query, viewer);
   const orderBy = buildOrderBy(query);
 
   if (query.group_by) {
@@ -313,6 +382,9 @@ export async function createIssue(
       action: ACTIVITY_ACTIONS.ISSUE_CREATED,
     });
 
+    // Author, assignees and controller follow the issue from the start.
+    await addWatchers(tx, issue.id, [creatorId, ...assigneeIds, body.controller_id ?? null]);
+
     // Notify anyone assigned at creation time (the creator self-assigning is
     // filtered out inside `notify`).
     await notify(tx, {
@@ -382,6 +454,40 @@ export async function updateIssue(
   if (body.controller_id) {
     await assertWorkspaceMember(prisma, workspaceId, body.controller_id, 'controller_id');
   }
+
+  // ─── Execution control (Ф5) ───
+  const role = await memberRole(prisma, workspaceId, actorId);
+  const reviewer = isReviewer(before, actorId, role);
+  const fromGroup = before.state.group;
+  const toState = body.state_id
+    ? await prisma.state.findFirst({
+        where: { id: body.state_id, project_id: projectId },
+        select: { id: true, name: true, group: true },
+      })
+    : null;
+  const toGroup = toState?.group;
+  // Work that needs review can only be closed by its reviewer (5.B3).
+  if (toGroup === 'completed' && fromGroup !== 'completed' && before.requires_review && !reviewer) {
+    throw new AppError(
+      409,
+      'REVIEW_REQUIRED',
+      'This assignment must be handed in for review; only its controller can close it',
+    );
+  }
+  // An assignment's deadline moves through a deadline-change request (5.B5).
+  if (
+    body.due_date !== undefined &&
+    before.kind === 'assignment' &&
+    !reviewer &&
+    activityValue(body.due_date ? new Date(body.due_date) : null) !== activityValue(before.due_date)
+  ) {
+    throw new AppError(
+      403,
+      'DEADLINE_CHANGE_FORBIDDEN',
+      'Only the controller can change this deadline — request a deadline change instead',
+    );
+  }
+
   if (
     body.primary_assignee_id &&
     !before.assignees.some((a) => a.user_id === body.primary_assignee_id)
@@ -405,6 +511,8 @@ export async function updateIssue(
         return state?.group === 'completed' ? new Date() : null;
       })()
     : undefined;
+
+  const events: { kind: 'review_requested' | 'review_approved' | 'review_returned'; recipients: string[] }[] = [];
 
   return prisma.$transaction(async (tx) => {
     if (body.primary_assignee_id) {
@@ -462,6 +570,46 @@ export async function updateIssue(
     });
     await recordActivities(tx, changes);
 
+    // State transitions drive the review cycle, so dragging a card behaves like
+    // the explicit review buttons (5.B2): → review opens a hand-in; leaving review
+    // approves (→ completed) or returns (anything else) the pending one.
+    const assigneeIds = after.assignees.map((a) => a.user_id);
+    if (toGroup && toGroup !== fromGroup) {
+      if (toGroup === 'review') {
+        await openReview(tx, after, actorId, null);
+        events.push({ kind: 'review_requested', recipients: [after.controller_id ?? after.created_by_id] });
+      } else if (fromGroup === 'review') {
+        const decision = toGroup === 'completed' ? 'approved' : 'returned';
+        const closed = await closePendingReview(tx, after, decision, actorId, null, assigneeIds);
+        if (closed) {
+          events.push({
+            kind: decision === 'approved' ? 'review_approved' : 'review_returned',
+            recipients: assigneeIds,
+          });
+        }
+      }
+      // Watchers hear about every state change (minus whoever just got a more
+      // specific review notification for it).
+      const notified = new Set(events.flatMap((e) => e.recipients));
+      await notify(tx, {
+        workspace_id: workspaceId,
+        actor_id: actorId,
+        type: 'state_changed',
+        recipient_ids: (await watcherIds(tx, issueId)).filter((id) => !notified.has(id)),
+        issue_id: issueId,
+      });
+    }
+
+    return after;
+  }).then(async (after) => {
+    for (const e of events) {
+      await deliverIssueEvent(prisma, {
+        issueId,
+        kind: e.kind,
+        recipientIds: e.recipients,
+        actorId,
+      });
+    }
     return after;
   });
 }
@@ -513,6 +661,7 @@ export async function addAssignee(
     await tx.issueAssignee.create({
       data: { issue_id: issueId, user_id: userId, is_primary: issue.assignees.length === 0 },
     });
+    await addWatchers(tx, issueId, [userId]);
     await recordActivity(tx, {
       workspace_id: workspaceId,
       issue_id: issueId,
