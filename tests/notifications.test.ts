@@ -243,3 +243,55 @@ describe('notification isolation', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('notification rows carry the issue and can be filtered (8.B6)', () => {
+  it('includes the issue brief and the actor ФИО fields', async () => {
+    const res = await listFor(aliceToken);
+    expect(res.status).toBe(200);
+    const assigned = res.body.data.find((n: { type: string }) => n.type === 'issue_assigned');
+    expect(assigned.issue).toMatchObject({
+      project_id: projectId,
+      project: { identifier: 'NOT' },
+    });
+    expect(typeof assigned.issue.title).toBe('string');
+    expect(typeof assigned.issue.sequence_id).toBe('number');
+    expect(assigned.actor).toHaveProperty('last_name');
+  });
+
+  it('filters by type (repeated or comma-separated) and rejects unknown types', async () => {
+    const one = await listFor(aliceToken, '?type=mentioned');
+    expect(one.status).toBe(200);
+    expect(one.body.data.length).toBeGreaterThan(0);
+    expect(one.body.data.every((n: { type: string }) => n.type === 'mentioned')).toBe(true);
+
+    const both = await listFor(aliceToken, '?type=mentioned,issue_assigned');
+    const types = new Set(both.body.data.map((n: { type: string }) => n.type));
+    expect([...types].every((t) => t === 'mentioned' || t === 'issue_assigned')).toBe(true);
+    expect(types.size).toBe(2);
+
+    const repeated = await listFor(aliceToken, '?type=mentioned&type=issue_assigned');
+    expect(repeated.body.data.length).toBe(both.body.data.length);
+
+    const bad = await listFor(aliceToken, '?type=nope');
+    expect(bad.status).toBe(400);
+  });
+
+  it('marks a notification unread again (own only)', async () => {
+    const list = await listFor(aliceToken);
+    const target = list.body.data[0];
+    expect(target.is_read).toBe(true); // everything was marked read above
+
+    const res = await request(app.server)
+      .post(`${notifs()}/${target.id}/unread`)
+      .set(...auth(aliceToken));
+    expect(res.status).toBe(200);
+    expect(res.body.is_read).toBe(false);
+    expect(res.body.read_at).toBeNull();
+    expect((await listFor(aliceToken, '?read=false')).body.unread_count).toBe(1);
+
+    const foreign = await request(app.server)
+      .post(`${notifs()}/${target.id}/unread`)
+      .set(...auth(bobToken));
+    expect(foreign.status).toBe(404);
+  });
+});

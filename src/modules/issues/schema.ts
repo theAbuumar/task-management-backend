@@ -138,10 +138,10 @@ export const listIssuesSchema: FastifySchema = {
   querystring: {
     type: 'object',
     properties: {
-      state: { oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
-      priority: { oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
-      assignee: { oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
-      label: { oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+      state: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+      priority: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+      assignee: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+      label: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
       cycle: { type: 'string', format: 'uuid' },
       module: { type: 'string', format: 'uuid' },
       created_by: { type: 'string' },

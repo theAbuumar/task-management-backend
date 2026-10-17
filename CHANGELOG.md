@@ -30,6 +30,27 @@
 
 ---
 
+## 2026-10-17 — 8.B6 Уведомления: задача в строке, фильтр по типу, «непрочитанное»; исправлены фильтры списка задач
+**Фаза:** Ф8 (+ исправление Ф1) · **Тип:** новая функция, исправление · **Ветка:** `claude/affectionate-wright-igm2y5` (от `develop`)
+**Что изменено:**
+- **Строка уведомления** теперь содержит краткие данные задачи (`issue`: id, название, номер, проект с ключом, вид, срок) и ФИО автора события. Клиенту не нужны лишние запросы, чтобы показать «ACCR-12 · Подготовить отчёт» и открыть задачу.
+- У `deadline_change_decided` добавлено поле `details { approved, new_due_date }`: можно написать «одобрил перенос срока на 25 окт.» или «отклонил».
+- **Фильтр по типу:** `GET .../notifications?type=review_requested,review_returned` (или повтор параметра). Неизвестный тип — 400.
+- **`POST .../notifications/:id/unread`** — вернуть уведомление в непрочитанные (только своё, иначе 404).
+- Swagger: полный список типов ADR-020 вместо трёх старых, схемы `issue`, `details`, ФИО автора.
+- **Исправление:** фильтры списка задач `state`, `priority`, `assignee`, `label` с одним значением (`?priority=high`, `?assignee=me`) отвечали 400 «must match exactly one schema in oneOf» — при приведении типов строка подходила под обе ветки `oneOf`. Заменено на `anyOf`. Повторённые параметры работали и раньше.
+**Файлы:** `src/modules/notifications/{schema,service,controller,routes}.ts`, `src/modules/issues/schema.ts`, `tests/notifications.test.ts`, `tests/execution-control.test.ts`.
+**API:**
+- `GET /api/v1/workspaces/:slug/notifications` — новые поля строки `issue`, `details`, `actor.{last_name,first_name,middle_name}`; новый параметр `type`;
+- `POST /api/v1/workspaces/:slug/notifications/:id/read` — те же новые поля в ответе;
+- `POST /api/v1/workspaces/:slug/notifications/:id/unread` — новый;
+- `GET /api/v1/workspaces/:slug/projects/:projectId/issues` — `state`, `priority`, `assignee`, `label` принимают одно значение (раньше 400).
+**БД:** —
+**Конфигурация:** —
+**Тесты:** `tests/notifications.test.ts` +3 (данные задачи и ФИО в строке; фильтр по типу через запятую, повтором и 400 на неизвестный тип; «непрочитанное» только для своих), `tests/execution-control.test.ts` +1 (одиночные и повторённые значения фильтров `priority`, `assignee`, `state`). Весь набор: 171 тест зелёный.
+**Как проверить:** `bash dev/test-backend.sh tests/notifications.test.ts tests/execution-control.test.ts`
+**Совместимость:** фронт — новая страница уведомлений (запись фронта «8.F4, 2.F2»). Старые клиенты не ломаются: поля только добавлены.
+
 ## 2026-10-17 — 5.F6 (бэк): сводные счётчики «Мои задачи» — `GET /workspaces/:slug/me/summary`
 **Фаза:** Ф5 · **Тип:** новая функция, производительность · **Ветка:** `claude/affectionate-wright-igm2y5` (от `develop`)
 **Что изменено:**

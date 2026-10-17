@@ -27,6 +27,20 @@ export async function markReadHandler(request: FastifyRequest, reply: FastifyRep
   reply.send(notification);
 }
 
+export async function markUnreadHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const { notificationId } = request.params as { notificationId: string };
+  const notification = await notificationService.markUnread(
+    request.server.prisma,
+    request.workspace.id,
+    request.userId,
+    notificationId,
+  );
+  reply.send(notification);
+}
+
 export async function markAllReadHandler(
   request: FastifyRequest,
   reply: FastifyReply,

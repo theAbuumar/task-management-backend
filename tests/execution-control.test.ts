@@ -238,6 +238,25 @@ describe('watchers and control filters', () => {
     const controlled = await as(rector).get(api(`/projects/${projectId}/issues?controller=me&open=true`));
     expect(controlled.body.data.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('list filters accept a single value as well as repeated ones (state, priority, assignee, label)', async () => {
+    const issue = await createAssignment({ priority: 'high', title: 'Высокий приоритет' });
+    const single = await as(rector).get(api(`/projects/${projectId}/issues?priority=high`));
+    expect(single.status).toBe(200);
+    expect(single.body.data.map((i: { id: string }) => i.id)).toContain(issue.id);
+
+    const repeated = await as(rector).get(api(`/projects/${projectId}/issues?priority=high&priority=urgent`));
+    expect(repeated.status).toBe(200);
+    expect(repeated.body.data.map((i: { id: string }) => i.id)).toContain(issue.id);
+
+    const byAssignee = await as(dean).get(api(`/projects/${projectId}/issues?assignee=me`));
+    expect(byAssignee.status).toBe(200);
+    expect(byAssignee.body.data.map((i: { id: string }) => i.id)).toContain(issue.id);
+
+    const byState = await as(rector).get(api(`/projects/${projectId}/issues?state=${states.unstarted}`));
+    expect(byState.status).toBe(200);
+    expect(byState.body.data.map((i: { id: string }) => i.id)).toContain(issue.id);
+  });
 });
 
 describe('deadline reminders and escalation', () => {
