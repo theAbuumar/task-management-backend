@@ -24,6 +24,7 @@ import { config } from '../../config/index.js';
 import { controlSettings } from '../../lib/control-settings.js';
 import { AppError } from '../../lib/errors.js';
 import { pluralize } from '../../lib/plural.js';
+import { BLOCKED_EXTENSIONS, extensionOf } from '../../lib/file-policy.js';
 import type { StorageDriver } from '../../lib/storage.js';
 import { issueUrl } from '../../lib/urls.js';
 import { addDays, localDate, startOfLocalDay } from '../../lib/tz.js';
@@ -663,6 +664,12 @@ async function receiveFile(
       chatId,
       `Файл больше ${Math.floor(limit / 1024 / 1024)} МБ — через Telegram его не передать. Приложите его к отчёту на сайте.`,
     );
+    return;
+  }
+  // Programs and scripts are refused by name right away; the content is checked
+  // when the hand-in stores the file (12.B6).
+  if (file.file_name && BLOCKED_EXTENSIONS.has(extensionOf(file.file_name))) {
+    await sendBotMessage(chatId, `«${file.file_name}»: ${errorText('FILE_TYPE_NOT_ALLOWED')}`);
     return;
   }
 

@@ -68,7 +68,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const body = ImageUploadBodySchema.parse(request.body);
       const key = `avatars/${request.userId}/${randomUUID()}`;
-      const upload = await app.storage.presignUpload(key, body.mime_type);
+      const upload = await app.storage.presignUpload(key, body.mime_type, MAX_IMAGE_BYTES);
       return { url: publicFileUrl(key), upload };
     },
   );
@@ -84,7 +84,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const body = ImageUploadBodySchema.parse(request.body);
       const key = `logos/${request.workspace.id}/${randomUUID()}`;
-      const upload = await app.storage.presignUpload(key, body.mime_type);
+      const upload = await app.storage.presignUpload(key, body.mime_type, MAX_IMAGE_BYTES);
       return { url: publicFileUrl(key), upload };
     },
   );

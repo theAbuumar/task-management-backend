@@ -413,6 +413,10 @@ describe('Telegram bot: a guest only reads (12.B4)', () => {
   });
 });
 
+// Real leading bytes: stored files must match their extension (12.B6, ADR-027).
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
+const ZIP = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+
 describe('Telegram bot: a report with files (9.T5)', () => {
   const staged = (chat: number) =>
     app.prisma.telegramPendingFile.count({ where: { chat_id: String(chat) } });
@@ -431,7 +435,7 @@ describe('Telegram bot: a report with files (9.T5)', () => {
       due_date: new Date(Date.now() + 5 * DAY).toISOString(),
     });
     telegramFiles['doc-plan'] = Buffer.from('%PDF-1.4 план');
-    telegramFiles['photo-big'] = Buffer.from('jpeg большой');
+    telegramFiles['photo-big'] = Buffer.concat([JPEG, Buffer.from('большой')]);
 
     calls = [];
     await tap(TG.dean, `a:sub:${issue.id}`).expect(200);
@@ -494,7 +498,7 @@ describe('Telegram bot: a report with files (9.T5)', () => {
       controller_id: rector.id,
       assignee_ids: [clerk.id],
     });
-    telegramFiles['doc-ref'] = Buffer.from('справка');
+    telegramFiles['doc-ref'] = Buffer.concat([ZIP, Buffer.from('справка')]);
 
     calls = [];
     await sendFile(TG.clerk, doc('doc-ref', 'Справка.docx', { caption: 'Справка готова' })).expect(
@@ -525,8 +529,8 @@ describe('Telegram bot: a report with files (9.T5)', () => {
       controller_id: rector.id,
       assignee_ids: [clerk.id],
     });
-    telegramFiles['alb-1'] = Buffer.from('ведомость 1');
-    telegramFiles['alb-2'] = Buffer.from('ведомость 2');
+    telegramFiles['alb-1'] = Buffer.from('%PDF-1.4 ведомость 1');
+    telegramFiles['alb-2'] = Buffer.from('%PDF-1.4 ведомость 2');
 
     calls = [];
     await sendFile(
@@ -579,7 +583,7 @@ describe('Telegram bot: a report with files (9.T5)', () => {
     expect(await app.prisma.attachment.count({ where: { issue_id: issue.id } })).toBe(0);
 
     // «Сдать на проверку» under the files: no report needed in this workspace.
-    telegramFiles['doc-p'] = Buffer.from('протокол');
+    telegramFiles['doc-p'] = Buffer.from('%PDF-1.4 протокол');
     await tap(TG.clerk, `a:sub:${issue.id}`).expect(200);
     await sendFile(TG.clerk, doc('doc-p', 'Протокол.pdf')).expect(200);
     calls = [];
@@ -599,6 +603,30 @@ describe('Telegram bot: a report with files (9.T5)', () => {
     expect(sent(TG.rector)[0]!.body.text).toContain('жду текст — замечание');
     expect(await staged(TG.rector)).toBe(0);
     await say(TG.rector, '/cancel').expect(200);
+  });
+
+  it('programs are refused: by name at once, a renamed one at the hand-in (12.B6)', async () => {
+    const issue = await createIssue(project, {
+      title: 'Отчёт о практике студентов',
+      kind: 'assignment',
+      controller_id: rector.id,
+      assignee_ids: [clerk.id],
+    });
+    await tap(TG.clerk, `a:sub:${issue.id}`).expect(200);
+
+    calls = [];
+    await sendFile(TG.clerk, doc('doc-exe', 'setup.exe')).expect(200);
+    expect(sent(TG.clerk).at(-1)!.body.text).toContain('Программы и скрипты прикладывать нельзя');
+    expect(await staged(TG.clerk)).toBe(0);
+
+    // Named like a report, but a Windows program inside: refused when it is stored.
+    telegramFiles['doc-fake'] = Buffer.concat([Buffer.from('MZ'), Buffer.alloc(16, 0x90)]);
+    await sendFile(TG.clerk, doc('doc-fake', 'Отчёт.pdf')).expect(200);
+    calls = [];
+    await say(TG.clerk, 'Отчёт во вложении').expect(200);
+    expect(sent(TG.clerk).at(-1)!.body.text).toContain('Программы и скрипты прикладывать нельзя');
+    expect(await app.prisma.issueReview.count({ where: { issue_id: issue.id } })).toBe(0);
+    expect(await app.prisma.attachment.count({ where: { issue_id: issue.id } })).toBe(0);
   });
 });
 

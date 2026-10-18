@@ -374,14 +374,23 @@ describe('media: avatars and logos', () => {
   async function upload(slotUrl: string, actor: Actor, bytes: Buffer | null, mime = 'image/png') {
     const slot = await as(actor).post(slotUrl, { mime_type: mime, size: bytes?.length || 10 });
     expect(slot.status).toBe(200);
-    const storagePath = new URL(slot.body.upload.url).pathname;
+    // The slot is a signed link (ADR-027): keep its query string.
+    const slotUrl2 = new URL(slot.body.upload.url);
+    const storagePath = slotUrl2.pathname;
     if (bytes) {
-      const put = await request(app.server).put(storagePath).set('Content-Type', mime).send(bytes);
+      const put = await request(app.server)
+        .put(storagePath + slotUrl2.search)
+        .set('Content-Type', mime)
+        .send(bytes);
       expect(put.status).toBe(204);
     }
     return { url: slot.body.url as string, storagePath };
   }
-  const stored = async (storagePath: string) => (await request(app.server).get(storagePath)).status;
+  /** 200 if the object behind a storage path exists, 404 if it was deleted. */
+  const stored = async (storagePath: string) => {
+    const key = decodeURIComponent(storagePath.replace(/^\/internal\/storage\//, ''));
+    return (await app.storage.inspect(key, 0)) ? 200 : 404;
+  };
 
   it('avatar: a real image is saved, a replaced or removed one is deleted', async () => {
     const first = await upload('/api/v1/auth/me/avatar', staff, PNG);

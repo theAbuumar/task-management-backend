@@ -179,6 +179,8 @@ describe('local storage probe', () => {
       baseDir: path.join(dir, 'uploads'),
       baseUrl: 'http://x',
       ttl: 60,
+      downloadTtl: 60,
+      secret: 'x',
     });
     await expect(driver.ping()).resolves.toBeUndefined();
   });
@@ -186,7 +188,13 @@ describe('local storage probe', () => {
   it('fails when the upload path is not a writable directory', async () => {
     const file = path.join(dir, 'not-a-dir');
     await writeFile(file, 'x');
-    const driver = new LocalStorageDriver({ baseDir: file, baseUrl: 'http://x', ttl: 60 });
+    const driver = new LocalStorageDriver({
+      baseDir: file,
+      baseUrl: 'http://x',
+      ttl: 60,
+      downloadTtl: 60,
+      secret: 'x',
+    });
     await expect(driver.ping()).rejects.toThrow();
   });
 });

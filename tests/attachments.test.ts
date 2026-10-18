@@ -150,11 +150,11 @@ describe('issue attachments', () => {
     const reg = await request(app.server)
       .post(`${base()}/issues/${issueId}/attachments`)
       .set(...auth(ownerToken))
-      .send({ file_name: name, file_size: 4, mime_type: 'application/pdf' });
+      .send({ file_name: name, file_size: 8, mime_type: 'application/pdf' });
     await request(app.server)
       .put(toPath(reg.body.upload.url))
       .set('content-type', 'application/pdf')
-      .send(Buffer.from('%PDF'));
+      .send(Buffer.from('%PDF-1.7'));
 
     const list = await request(app.server)
       .get(`${base()}/issues/${issueId}/attachments`)

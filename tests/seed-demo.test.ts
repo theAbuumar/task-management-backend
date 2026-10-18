@@ -60,7 +60,13 @@ let seeded: SeedDemoResult;
 
 beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), `tm-demo-${TS}-`));
-  storage = new LocalStorageDriver({ baseDir: dir, baseUrl: 'http://localhost:3000', ttl: 900 });
+  storage = new LocalStorageDriver({
+    baseDir: dir,
+    baseUrl: 'http://localhost:3000',
+    ttl: 900,
+    downloadTtl: 86_400,
+    secret: 'test-storage-secret',
+  });
   seeded = await seedDemo(prisma, {
     storage,
     now: NOW,

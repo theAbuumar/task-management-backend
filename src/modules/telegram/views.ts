@@ -466,6 +466,10 @@ export function errorText(code: string | undefined): string {
       return 'Запрос на перенос срока уже ждёт решения контролёра.';
     case 'FILE_DOWNLOAD_FAILED':
       return 'Не удалось получить файл из Telegram. Пришлите его ещё раз или приложите на сайте.';
+    case 'FILE_TYPE_NOT_ALLOWED':
+      return 'Программы и скрипты прикладывать нельзя. Пришлите документ, таблицу или фото.';
+    case 'FILE_CONTENT_MISMATCH':
+      return 'Содержимое файла не совпадает с его расширением. Пришлите исходный документ.';
     case 'FORBIDDEN':
       return 'Недостаточно прав.';
     case 'NOT_FOUND':

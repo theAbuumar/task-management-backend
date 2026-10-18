@@ -126,8 +126,13 @@ export const envSchema = z
     // presigned URLs. The S3_* vars are required only when STORAGE_DRIVER=s3
     // (enforced by the superRefine below).
     STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
-    /** Lifetime (seconds) of generated presigned upload/download URLs. */
+    /** Lifetime (seconds) of presigned upload slots. */
     STORAGE_PRESIGN_TTL: z.coerce.number().int().min(30).max(86400).default(900),
+    /**
+     * Lifetime (seconds) of download links: long enough that an open task keeps its
+     * files, short enough that a copied link stops working (ADR-027).
+     */
+    STORAGE_DOWNLOAD_TTL: z.coerce.number().int().min(60).max(604800).default(86400),
     /** Public base URL the app is reachable at — used to build local storage URLs. */
     PUBLIC_BASE_URL: z.string().url().default('http://localhost:3000'),
     /** Max accepted upload size in bytes (default 25 MiB). */

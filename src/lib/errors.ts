@@ -50,7 +50,9 @@ export type ErrorCode =
   | 'INVALID_IMAGE'
   | 'GUEST_READ_ONLY'
   | 'GUEST_NOT_ASSIGNABLE'
-  | 'MEMBER_DEACTIVATED';
+  | 'MEMBER_DEACTIVATED'
+  | 'FILE_TYPE_NOT_ALLOWED'
+  | 'FILE_CONTENT_MISMATCH';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -106,6 +108,10 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
   GUEST_NOT_ASSIGNABLE: 'A guest cannot be made an assignee or the controller of a task',
   MEMBER_DEACTIVATED:
     'An admin has turned off this person’s access to the workspace (403 on their own requests and sign-in; 400 when assigning them)',
+  FILE_TYPE_NOT_ALLOWED:
+    'Executable files and scripts cannot be attached — refused by extension, or by content whatever the name (details.file_name)',
+  FILE_CONTENT_MISMATCH:
+    'The file content does not match its extension, e.g. a «.pdf» that is not a PDF (details.file_name)',
 };
 
 /**

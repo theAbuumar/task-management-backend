@@ -94,9 +94,11 @@ describe('code-confirmed account deletion', () => {
       .post('/api/v1/auth/me/avatar')
       .set('Authorization', `Bearer ${token}`)
       .send({ mime_type: 'image/jpeg', size: 16 });
-    const photoPath = new URL(slot.body.upload.url).pathname;
+    // A signed upload link (ADR-027): path and query go together.
+    const photoSlot = new URL(slot.body.upload.url);
+    const photoKey = decodeURIComponent(photoSlot.pathname.replace(/^\/internal\/storage\//, ''));
     await request(app.server)
-      .put(photoPath)
+      .put(photoSlot.pathname + photoSlot.search)
       .set('Content-Type', 'image/jpeg')
       .send(
         Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1]),
@@ -137,7 +139,7 @@ describe('code-confirmed account deletion', () => {
     expect(user?.is_active).toBe(false);
     expect(user?.display_name).toBe('Deleted user');
     expect(user?.avatar_url).toBeNull();
-    expect((await request(app.server).get(photoPath)).status).toBe(404);
+    expect(await app.storage.inspect(photoKey, 0)).toBeNull();
 
     // Login methods and sessions are gone.
     expect(await app.prisma.authIdentity.count({ where: { user_id: userId } })).toBe(0);

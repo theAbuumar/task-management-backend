@@ -3,6 +3,7 @@ import { AppError } from '../../lib/errors.js';
 import { recordActivity, ACTIVITY_ACTIONS } from '../../lib/activity.js';
 import { buildStorageKey, type PresignedUpload, type StorageDriver } from '../../lib/storage.js';
 import { config } from '../../config/index.js';
+import { assertAllowedFileName, assertFileContent, SNIFF_BYTES } from '../../lib/file-policy.js';
 import type { CreateAttachmentBody } from './schema.js';
 
 const INCLUDE_UPLOADER = {
@@ -66,6 +67,8 @@ export async function createAttachment(
   body: CreateAttachmentBody,
 ): Promise<{ attachment: AttachmentWithUploader; upload: PresignedUpload }> {
   await resolveIssue(prisma, workspaceId, projectId, issueId);
+  // No programs or scripts; the bytes themselves are checked by the upload route (ADR-027).
+  assertAllowedFileName(body.file_name);
 
   if (body.file_size > config.ATTACHMENT_MAX_BYTES) {
     throw AppError.badRequest(
@@ -81,7 +84,7 @@ export async function createAttachment(
     storageKey,
     ...body,
   });
-  const upload = await storage.presignUpload(storageKey, body.mime_type);
+  const upload = await storage.presignUpload(storageKey, body.mime_type, body.file_size);
   return { attachment, upload };
 }
 
@@ -140,6 +143,7 @@ export async function storeAttachment(
       `file_size exceeds the maximum allowed (${config.ATTACHMENT_MAX_BYTES} bytes)`,
     );
   }
+  assertFileContent(a.fileName, a.data.subarray(0, SNIFF_BYTES));
   const storageKey = buildStorageKey(a.workspaceId, a.issueId, a.fileName);
   await storage.put(storageKey, a.data, a.mimeType);
   try {
