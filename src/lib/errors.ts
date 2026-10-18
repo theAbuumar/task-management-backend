@@ -43,7 +43,8 @@ export type ErrorCode =
   | 'DEADLINE_CHANGE_FORBIDDEN'
   | 'DEADLINE_REQUEST_PENDING'
   | 'DEPARTMENT_HAS_NO_HEAD'
-  | 'REALTIME_UNAVAILABLE';
+  | 'REALTIME_UNAVAILABLE'
+  | 'TELEGRAM_NOT_CONFIRMED';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -86,6 +87,8 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
   DEPARTMENT_HAS_NO_HEAD:
     'A department picked for a distribution has no head to assign it to (see details)',
   REALTIME_UNAVAILABLE: 'Live updates are temporarily unavailable — the client keeps retrying',
+  TELEGRAM_NOT_CONFIRMED:
+    'The Telegram link is not confirmed in the bot (details.status: pending — keep polling; expired or used — start again)',
 };
 
 /**

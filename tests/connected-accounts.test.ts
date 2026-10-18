@@ -179,6 +179,17 @@ describe('POST /auth/identities/telegram/link', () => {
     const session = cookieValue(init.headers['set-cookie'] as unknown as string[], 'tg_session')!;
     const token = init.body.token as string;
 
+    // Before the bot confirms: a precise code, and the token stays usable (the
+    // profile page polls this until the user taps «Подтвердить» in the bot).
+    const early = await request(app.server)
+      .post('/api/v1/auth/identities/telegram/link')
+      .set(...auth(tokenA))
+      .set('Cookie', `tg_session=${session}`)
+      .send({ token });
+    expect(early.status).toBe(400);
+    expect(early.body.error.code).toBe('TELEGRAM_NOT_CONFIRMED');
+    expect(early.body.error.details).toEqual({ status: 'pending' });
+
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
@@ -220,6 +231,7 @@ describe('POST /auth/identities/telegram/link', () => {
       .set('Cookie', `tg_session=${session}`)
       .send({ token });
     expect(again.status).toBe(400);
+    expect(again.body.error.details).toEqual({ status: 'used' });
   });
 });
 

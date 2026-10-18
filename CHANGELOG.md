@@ -30,6 +30,24 @@
 
 ---
 
+## 2026-10-18 — 13.P5, 4.F9 (Telegram) Подключение Telegram из профиля: код TELEGRAM_NOT_CONFIRMED, текст бота
+**Фаза:** Ф13, Ф4 · **Тип:** исправление · **Ветка:** `claude/affectionate-wright-igm2y5`
+**Что изменено:**
+- `POST /auth/identities/telegram/link` различает «ещё не подтверждено» и остальные ошибки. Пока пользователь не нажал «Подтвердить» в боте, ответ — `400 TELEGRAM_NOT_CONFIRMED` с `details.status = pending`. Токен при этом не расходуется, и профиль на сайте опрашивает этот маршрут, пока не придёт подтверждение. `expired` и `used` означают, что нужно начать заново. Раньше был общий `BAD_REQUEST` с текстом без кода.
+- Бот для непривязанного Telegram советовал «привяжите Telegram в профиле», но такой кнопки не было, а кнопка входа называлась иначе. Теперь: «Откройте на сайте «Профиль» → «Подключить Telegram» (или войдите кнопкой «Продолжить с Telegram»)». Кнопка в профиле появилась в этой же задаче, см. CHANGELOG фронта.
+**Файлы:** `src/lib/errors.ts`, `src/modules/auth/service.ts`, `src/modules/telegram/views.ts`, `tests/connected-accounts.test.ts`
+**API:**
+- `POST /api/v1/auth/identities/telegram/link` — новый код ошибки `TELEGRAM_NOT_CONFIRMED` (400, `details.status`: `pending | expired | used`) вместо `BAD_REQUEST`. Добавлен в каталог `ERROR_CODES`, поэтому виден в Swagger.
+**БД:** —
+**Конфигурация:** —
+**Тесты:** `connected-accounts.test.ts`:
+- привязка до подтверждения → `TELEGRAM_NOT_CONFIRMED`/`pending`, после подтверждения тот же токен привязывается;
+- повтор → `used`.
+
+Всего 256 зелёных.
+**Как проверить:** профиль → «Подключить Telegram» → в боте «Подтвердить» → на сайте «Подключён …».
+**Совместимость:** фронт — запись 13.P5 (Telegram в профиле) в CHANGELOG фронта.
+
 ## 2026-10-18 — CI: `npm run lint` снова зелёный (prettier)
 **Фаза:** — · **Тип:** инфраструктура · **Ветка:** `claude/affectionate-wright-igm2y5`
 **Что изменено:**

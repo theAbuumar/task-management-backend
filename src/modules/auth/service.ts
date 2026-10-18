@@ -451,8 +451,13 @@ export async function linkTelegram(
 ): Promise<IdentitySummary> {
   const state = await consumeLoginToken(prisma, token, sessionId);
   if (state.status !== 'confirmed') {
-    throw AppError.badRequest(
+    // A pending token is not consumed, so the profile page polls this until the
+    // user confirms in the bot (13.P5); expired/used means start over.
+    throw new AppError(
+      400,
+      'TELEGRAM_NOT_CONFIRMED',
       `Telegram sign-in is not confirmed yet (status: ${state.status}). Confirm in the bot, then retry.`,
+      { status: state.status },
     );
   }
   return linkIdentity(prisma, userId, {
