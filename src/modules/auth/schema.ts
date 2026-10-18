@@ -164,6 +164,9 @@ export const TelegramUpdateSchema = z
 export const LinkIdentityParamsSchema = z.object({
   provider: z.enum(['google', 'github', 'telegram']),
 });
+export const LinkStartParamsSchema = z.object({
+  provider: z.enum(['google', 'github']),
+});
 export const UnlinkIdentityParamsSchema = z.object({
   provider: z.enum(['email', 'google', 'github', 'telegram']),
 });
@@ -577,6 +580,28 @@ export const linkIdentityRouteSchema: FastifySchema = {
   },
   response: responses({
     200: identityShape,
+  }),
+};
+
+export const linkStartRouteSchema: FastifySchema = {
+  tags: ['Auth'],
+  summary: 'Start linking Google or GitHub to the current account (profile → connected accounts)',
+  description:
+    'Returns the provider consent `url` for the browser to navigate to and sets the `oauth_state` cookie. The state names the signed-in user (ADR-025), so the provider’s usual `…/callback` links the account to this user instead of signing in, then redirects to `FRONTEND_URL/profile#linked=<provider>` or `#link_error=<code>` (`linked_to_other_account`, `invalid_state`, `<provider>_link_failed`, or the provider’s own error such as `access_denied`). 400 when the provider is not configured on this deployment.',
+  security: [{ bearerAuth: [] }],
+  params: {
+    type: 'object',
+    required: ['provider'],
+    properties: {
+      provider: { type: 'string', enum: ['google', 'github'] },
+    },
+  },
+  response: responses({
+    200: {
+      type: 'object',
+      required: ['url'],
+      properties: { url: { type: 'string' } },
+    },
   }),
 };
 

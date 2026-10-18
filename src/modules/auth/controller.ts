@@ -15,8 +15,12 @@ import {
   createState,
   setStateCookie,
   clearStateCookie,
-  verifyCallbackState,
+  readCallbackState,
+  type LinkIntent,
+  type LinkProvider,
+  type StateClaims,
 } from '../../lib/oauth-state.js';
+import { frontendUrl } from '../../lib/urls.js';
 import { setTelegramSessionCookie, readTelegramSessionCookie } from '../../lib/telegram-session.js';
 import { generateSessionId } from './telegram-login.service.js';
 import type { ProviderProfile } from './identity.service.js';
@@ -37,6 +41,7 @@ import {
   LinkIdentityParamsSchema,
   UnlinkIdentityParamsSchema,
   LinkIdentityBodySchema,
+  LinkStartParamsSchema,
 } from './schema.js';
 
 /** Frontend URL to bounce the browser to after a successful OAuth login. */
@@ -53,6 +58,91 @@ function frontendErrorUrl(code: string): string {
   const url = new URL(config.FRONTEND_URL);
   url.hash = `error=${encodeURIComponent(code)}`;
   return url.toString();
+}
+
+/** Where a link flow (ADR-025) ends: the profile, with `#linked=…` or `#link_error=…`. */
+function frontendLinkUrl(outcome: { linked: LinkProvider } | { error: string }): string {
+  const url = new URL(frontendUrl('profile'));
+  url.hash =
+    'linked' in outcome
+      ? `linked=${outcome.linked}`
+      : `link_error=${encodeURIComponent(outcome.error)}`;
+  return url.toString();
+}
+
+/**
+ * The checks every OAuth callback shares (consent error, CSRF state, code). Returns
+ * the verified state claims and the code, or null after redirecting the browser:
+ * a link flow goes back to the profile, a sign-in to the login page.
+ */
+function checkCallback(
+  provider: LinkProvider,
+  query: { code?: string; state?: string; error?: string },
+  request: FastifyRequest,
+  reply: FastifyReply,
+): { claims: StateClaims; code: string } | null {
+  const claims = readCallbackState(query.state, request.cookies);
+  // The state cookie is single-use regardless of outcome — clear it once we've read it.
+  clearStateCookie(reply);
+  const bounce = (code: string) =>
+    reply.redirect(claims?.link ? frontendLinkUrl({ error: code }) : frontendErrorUrl(code));
+
+  // User declined consent (or the provider reported an error) — bounce back cleanly.
+  if (query.error) {
+    bounce(query.error);
+    return null;
+  }
+  // CSRF: `state` must match the browser cookie AND be a fresh token we minted —
+  // for this provider when it is a link (a Google link state is no GitHub one).
+  if (!claims || (claims.link && claims.link.provider !== provider)) {
+    bounce('invalid_state');
+    return null;
+  }
+  if (!query.code) {
+    bounce('missing_code');
+    return null;
+  }
+  return { claims, code: query.code };
+}
+
+/**
+ * End of a link flow (ADR-025): attach the provider account to the user who started
+ * it from the profile. Nothing is signed in or out; the browser goes back to the
+ * profile. An account already linked to someone else is refused, never moved.
+ */
+async function finishLink(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  link: LinkIntent,
+  resolve: () => Promise<ProviderProfile>,
+): Promise<void> {
+  try {
+    const identity = await authService.linkIdentity(
+      request.server.prisma,
+      link.userId,
+      await resolve(),
+    );
+    await writeAudit(
+      request.server.prisma,
+      {
+        actor_id: link.userId,
+        action: 'auth.identity_linked',
+        target_type: 'user',
+        target_id: link.userId,
+        meta: { provider: identity.provider },
+      },
+      request,
+    );
+    reply.redirect(frontendLinkUrl({ linked: link.provider }));
+  } catch (err) {
+    const conflict = err instanceof AppError && err.statusCode === 409;
+    if (!conflict) request.log.error({ err }, `${link.provider} link callback failed`);
+    reply.redirect(
+      frontendLinkUrl({
+        error: conflict ? 'linked_to_other_account' : `${link.provider}_link_failed`,
+      }),
+    );
+  }
 }
 
 export async function registerHandler(request: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -128,30 +218,18 @@ export async function googleCallbackHandler(
   reply: FastifyReply,
 ): Promise<void> {
   const query = GoogleCallbackQuerySchema.parse(request.query ?? {});
+  const checked = checkCallback('google', query, request, reply);
+  if (!checked) return;
+  const { claims, code } = checked;
 
-  // The state cookie is single-use regardless of outcome — clear it once we've read it.
-  clearStateCookie(reply);
-
-  // User declined consent (or Google reported an error) — bounce back cleanly.
-  if (query.error) {
-    reply.redirect(frontendErrorUrl(query.error));
-    return;
-  }
-
-  // CSRF: `state` must match the browser cookie AND be a fresh token we minted.
-  if (!verifyCallbackState(query.state, request.cookies)) {
-    reply.redirect(frontendErrorUrl('invalid_state'));
-    return;
-  }
-
-  if (!query.code) {
-    reply.redirect(frontendErrorUrl('missing_code'));
+  if (claims.link) {
+    await finishLink(request, reply, claims.link, async () => googleIdentity(code));
     return;
   }
 
   let result: authService.AuthTokens;
   try {
-    const profile = await exchangeGoogleCode(query.code);
+    const profile = await exchangeGoogleCode(code);
     result = await authService.loginWithProvider(request.server.prisma, {
       provider: 'google',
       provider_user_id: profile.sub,
@@ -188,30 +266,18 @@ export async function githubCallbackHandler(
   reply: FastifyReply,
 ): Promise<void> {
   const query = GithubCallbackQuerySchema.parse(request.query ?? {});
+  const checked = checkCallback('github', query, request, reply);
+  if (!checked) return;
+  const { claims, code } = checked;
 
-  // The state cookie is single-use regardless of outcome — clear it once we've read it.
-  clearStateCookie(reply);
-
-  // User declined authorization (or GitHub reported an error) — bounce back cleanly.
-  if (query.error) {
-    reply.redirect(frontendErrorUrl(query.error));
-    return;
-  }
-
-  // CSRF: `state` must match the browser cookie AND be a fresh token we minted.
-  if (!verifyCallbackState(query.state, request.cookies)) {
-    reply.redirect(frontendErrorUrl('invalid_state'));
-    return;
-  }
-
-  if (!query.code) {
-    reply.redirect(frontendErrorUrl('missing_code'));
+  if (claims.link) {
+    await finishLink(request, reply, claims.link, async () => githubIdentity(code));
     return;
   }
 
   let result: authService.AuthTokens;
   try {
-    const profile = await exchangeGithubCode(query.code);
+    const profile = await exchangeGithubCode(code);
     result = await authService.loginWithProvider(request.server.prisma, {
       provider: 'github',
       provider_user_id: profile.id,
@@ -347,27 +413,50 @@ export async function linkIdentityHandler(
   }
 
   if (!body.code) throw AppError.badRequest('An OAuth authorization code is required');
-  let profile: ProviderProfile;
-  if (provider === 'google') {
-    const g = await exchangeGoogleCode(body.code);
-    profile = {
-      provider: 'google',
-      provider_user_id: g.sub,
-      email: g.email,
-      email_verified: g.email_verified,
-    };
-  } else {
-    const gh = await exchangeGithubCode(body.code);
-    profile = {
-      provider: 'github',
-      provider_user_id: gh.id,
-      email: gh.email,
-      email_verified: gh.email_verified,
-    };
-  }
+  const profile =
+    provider === 'google' ? await googleIdentity(body.code) : await githubIdentity(body.code);
 
   const identity = await authService.linkIdentity(prisma, request.userId, profile);
   reply.send(identity);
+}
+
+/** The Google account behind an authorization code, as an identity to link. */
+async function googleIdentity(code: string): Promise<ProviderProfile> {
+  const g = await exchangeGoogleCode(code);
+  return {
+    provider: 'google',
+    provider_user_id: g.sub,
+    email: g.email,
+    email_verified: g.email_verified,
+  };
+}
+
+/** The GitHub account behind an authorization code, as an identity to link. */
+async function githubIdentity(code: string): Promise<ProviderProfile> {
+  const gh = await exchangeGithubCode(code);
+  return {
+    provider: 'github',
+    provider_user_id: gh.id,
+    email: gh.email,
+    email_verified: gh.email_verified,
+  };
+}
+
+/**
+ * Start linking Google/GitHub from the profile (ADR-025): a state that names the
+ * signed-in user, mirrored in the browser cookie, and the provider's consent URL
+ * for the client to navigate to. The provider's callback then links, not signs in.
+ */
+export async function linkStartHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const { provider } = LinkStartParamsSchema.parse(request.params);
+  const state = createState({ provider, userId: request.userId });
+  // Built first: throws 400 when the provider isn't configured on this deployment.
+  const url = provider === 'google' ? buildGoogleAuthUrl(state) : buildGithubAuthUrl(state);
+  setStateCookie(reply, state);
+  reply.send({ url });
 }
 
 export async function unlinkIdentityHandler(
@@ -376,6 +465,17 @@ export async function unlinkIdentityHandler(
 ): Promise<void> {
   const { provider } = UnlinkIdentityParamsSchema.parse(request.params);
   await authService.unlinkIdentity(request.server.prisma, request.userId, provider);
+  await writeAudit(
+    request.server.prisma,
+    {
+      actor_id: request.userId,
+      action: 'auth.identity_unlinked',
+      target_type: 'user',
+      target_id: request.userId,
+      meta: { provider },
+    },
+    request,
+  );
   reply.code(204).send();
 }
 

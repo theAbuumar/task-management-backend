@@ -30,6 +30,33 @@
 
 ---
 
+## 2026-10-18 — 4.F9 Привязка Google и GitHub из профиля (ADR-025)
+**Фаза:** Ф4 · **Тип:** новая функция, безопасность · **Ветка:** `claude/affectionate-wright-igm2y5`
+**Что изменено:**
+- `link/start` выпускает OAuth-`state` с намерением «привязать к пользователю X» (подписан, как и раньше, плюс дублируется в cookie `oauth_state`) и отдаёт адрес согласия провайдера.
+- Прежние `GET /auth/google/callback` и `/auth/github/callback` по такому `state` привязывают аккаунт вместо входа (`linkIdentity`, чужой аккаунт не забирается). Затем отправляют браузер на `FRONTEND_URL/profile#linked=<provider>` или `#link_error=<код>`. Сессия при этом не создаётся и не меняется.
+- Общие проверки callback (отказ пользователя, CSRF-`state`, код) вынесены в `checkCallback`. Если отказ или ошибка случились при привязке, браузер возвращается в профиль, а не на страницу входа.
+- `state` Google не принимается в callback GitHub и наоборот. Подмена пользователя в `state` ломает подпись. Ссылка, открытая в другом браузере без cookie, ничего не привязывает (`invalid_state`).
+- Аудит: `auth.identity_linked` и `auth.identity_unlinked` (с `meta.provider`). Обе записи в группе «Входы» журнала пространства.
+**Файлы:** `src/lib/oauth-state.ts` (`createState(link?)`, `readState`, `readCallbackState`), `src/modules/auth/controller.ts`, `src/modules/auth/routes.ts`, `src/modules/auth/schema.ts`, `src/modules/audit/service.ts`
+**API:**
+- `POST /api/v1/auth/identities/:provider/link/start` (`google` | `github`, нужна сессия, лимит 30 в минуту) — новый: `{ url }` и cookie `oauth_state`. Если провайдер не настроен — 400.
+- `GET /api/v1/auth/{google,github}/callback` — при `state` из `link/start` привязывает и возвращает на `/profile#linked=…` или `#link_error=…` (`linked_to_other_account`, `invalid_state`, `missing_code`, `<provider>_link_failed`, ошибка провайдера вроде `access_denied`). Вход работает как раньше.
+- `POST /api/v1/auth/identities/:provider/link` с `code` не менялся.
+**БД:** —
+**Конфигурация:** — (используются прежние `GOOGLE_*` и `GITHUB_*`, новый адрес возврата у провайдера регистрировать не нужно)
+**Тесты:** `tests/oauth-link.test.ts` (+10):
+- старт без сессии и для Telegram отклоняется;
+- привязка Google и GitHub без входа, с записью в аудите;
+- чужой аккаунт не привязывается и остаётся у владельца;
+- отказ пользователя возвращает в профиль;
+- ссылка без cookie, подделанный `state` и `state` Google в callback GitHub ничего не привязывают;
+- аудит отвязки.
+
+Всего 317 зелёных.
+**Как проверить:** с настроенным Google: профиль → «Привязанные аккаунты» → «Привязать» у Google → выбрать аккаунт → браузер возвращается в профиль, Google в списке; войти через Google в тот же аккаунт.
+**Совместимость:** фронт — запись 4.F9 (блок «Привязанные аккаунты»). Бот не затронут.
+
 ## 2026-10-18 — 8.B2 Личные настройки уведомлений: тип × канал, тихие часы
 **Фаза:** Ф8 · **Тип:** новая функция · **Ветка:** `claude/affectionate-wright-igm2y5`
 **Что изменено:**

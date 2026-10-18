@@ -7,6 +7,11 @@
 //
 // This only proves the callback's `state` was minted by us and is recent. Binding it
 // to the specific browser (double-submit cookie) is the route's job on top of this.
+//
+// A state may also carry a link intent (ADR-025, 4.F9): "attach the provider account
+// to user X" — minted only by an authenticated `…/link/start`. The callback then links
+// instead of signing in. The intent is inside the signed payload, so it can't be
+// added or changed by whoever holds the URL.
 
 import crypto from 'node:crypto';
 import type { FastifyReply } from 'fastify';
@@ -20,30 +25,58 @@ function sign(payload: string): string {
   return crypto.createHmac('sha256', config.JWT_ACCESS_SECRET).update(payload).digest('base64url');
 }
 
-/** Mint a fresh, self-authenticating state token. */
-export function createState(): string {
+export type LinkProvider = 'google' | 'github';
+
+/** Who a link flow attaches the provider account to (ADR-025). */
+export interface LinkIntent {
+  provider: LinkProvider;
+  userId: string;
+}
+
+/** What a verified state says: a sign-in (`link: null`) or a link to an account. */
+export interface StateClaims {
+  link: LinkIntent | null;
+}
+
+/** Mint a fresh, self-authenticating state token; with `link` — for a link flow. */
+export function createState(link?: LinkIntent): string {
   const nonce = crypto.randomBytes(16).toString('base64url');
   const issued = Date.now().toString(36);
-  const payload = `${nonce}.${issued}`;
+  const parts = [nonce, issued];
+  if (link) parts.push(Buffer.from(`${link.provider}:${link.userId}`).toString('base64url'));
+  const payload = parts.join('.');
   return `${payload}.${sign(payload)}`;
+}
+
+/** The claims of a state produced by `createState` within the TTL, else null. */
+export function readState(state: string | undefined | null): StateClaims | null {
+  if (!state) return null;
+  const parts = state.split('.');
+  if (parts.length !== 3 && parts.length !== 4) return null;
+  const sig = parts.pop()!;
+  const [nonce, issued, intent] = parts;
+  if (!nonce || !issued || !sig || (parts.length === 3 && !intent)) return null;
+  const expected = sign(parts.join('.'));
+
+  const given = Buffer.from(sig);
+  const want = Buffer.from(expected);
+  if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) return null;
+
+  const issuedMs = parseInt(issued, 36);
+  if (!Number.isFinite(issuedMs) || Date.now() - issuedMs > STATE_TTL_MS) return null;
+  if (!intent) return { link: null };
+
+  const decoded = Buffer.from(intent, 'base64url').toString();
+  const sep = decoded.indexOf(':');
+  const provider = decoded.slice(0, sep);
+  const userId = decoded.slice(sep + 1);
+  if (sep < 1 || !userId || (provider !== 'google' && provider !== 'github')) return null;
+  return { link: { provider, userId } };
 }
 
 /** True iff `state` was produced by `createState` and is within the TTL. */
 export function verifyState(state: string | undefined | null): boolean {
-  if (!state) return false;
-  const parts = state.split('.');
-  if (parts.length !== 3) return false;
-  const [nonce, issued, sig] = parts;
-  if (!nonce || !issued || !sig) return false;
-  const expected = sign(`${nonce}.${issued}`);
-
-  const given = Buffer.from(sig);
-  const want = Buffer.from(expected);
-  if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) return false;
-
-  const issuedMs = parseInt(issued, 36);
-  if (!Number.isFinite(issuedMs)) return false;
-  return Date.now() - issuedMs <= STATE_TTL_MS;
+  return readState(state) !== null;
 }
 
 // ─── Double-submit state cookie ─────────────────────────────────────────────────
@@ -80,18 +113,27 @@ export function clearStateCookie(reply: FastifyReply): void {
 /**
  * Full CSRF check for an OAuth callback: the `state` query param must match the
  * value stored in the browser cookie (double-submit) **and** be a token we minted
- * that is still within its TTL. Either check alone is insufficient.
+ * that is still within its TTL. Either check alone is insufficient. Returns the
+ * state's claims (sign-in or link intent), or null when the check fails.
  */
+export function readCallbackState(
+  stateParam: string | undefined | null,
+  cookies: Record<string, string | undefined>,
+): StateClaims | null {
+  const cookieState = cookies[STATE_COOKIE_NAME];
+  if (!stateParam || !cookieState) return null;
+
+  const given = Buffer.from(stateParam);
+  const want = Buffer.from(cookieState);
+  if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) return null;
+
+  return readState(stateParam);
+}
+
+/** Boolean form of {@link readCallbackState}. */
 export function verifyCallbackState(
   stateParam: string | undefined | null,
   cookies: Record<string, string | undefined>,
 ): boolean {
-  const cookieState = cookies[STATE_COOKIE_NAME];
-  if (!stateParam || !cookieState) return false;
-
-  const given = Buffer.from(stateParam);
-  const want = Buffer.from(cookieState);
-  if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) return false;
-
-  return verifyState(stateParam);
+  return readCallbackState(stateParam, cookies) !== null;
 }

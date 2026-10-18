@@ -23,6 +23,7 @@ import {
   telegramStatusRouteSchema,
   listIdentitiesRouteSchema,
   linkIdentityRouteSchema,
+  linkStartRouteSchema,
   unlinkIdentityRouteSchema,
 } from './schema.js';
 import {
@@ -47,6 +48,7 @@ import {
   telegramStatusHandler,
   listIdentitiesHandler,
   linkIdentityHandler,
+  linkStartHandler,
   unlinkIdentityHandler,
 } from './controller.js';
 
@@ -122,6 +124,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     '/identities/:provider/link',
     { schema: linkIdentityRouteSchema, preHandler: [authenticate] },
     linkIdentityHandler,
+  );
+  // Google/GitHub from the profile (ADR-025): the provider callback links, not signs in.
+  app.post(
+    '/identities/:provider/link/start',
+    { schema: linkStartRouteSchema, preHandler: [authenticate], config: authRateLimit },
+    linkStartHandler,
   );
   app.delete(
     '/identities/:provider',
