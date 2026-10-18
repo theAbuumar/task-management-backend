@@ -288,15 +288,35 @@ model AuditLog {
 
 /// Telegram bot (ADR-011, режим 6 дней): the text the bot waits for from a chat
 /// after a button — a report for «Сдать на проверку», a remark for «Вернуть», a
-/// comment. One pending input per chat; it expires after 15 minutes.
+/// comment, a new date for «Перенести срок». One pending input per chat; it
+/// expires after 15 minutes.
 model TelegramPendingInput {
   chat_id    String   @id
   user_id    String
   issue_id   String
-  /// submit | return | comment
+  /// submit | return | comment | deadline
   action     String
   expires_at DateTime
   created_at DateTime @default(now())
+}
+
+/// A document or photo sent to the bot, waiting to be handed in with a report.
+/// Only Telegram's file reference is kept: the bytes are fetched into attachment
+/// storage on hand-in, so a cancelled hand-in leaves nothing behind. Rows older
+/// than 15 minutes are ignored and purged.
+model TelegramPendingFile {
+  id             String   @id @default(uuid())
+  chat_id        String
+  file_id        String
+  /// null for a photo — named at hand-in («Фото 18.10.2026 14-05.jpg»)
+  file_name      String?
+  mime_type      String
+  file_size      Int?
+  caption        String?
+  media_group_id String?
+  created_at     DateTime @default(now())
+
+  @@index([chat_id, created_at])
 }
 
 model Workspace {

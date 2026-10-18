@@ -258,7 +258,7 @@ export async function telegramWebhookHandler(
   }
 
   const update = TelegramUpdateSchema.parse(request.body ?? {});
-  await authService.handleTelegramUpdate(request.server.prisma, update);
+  await authService.handleTelegramUpdate(request.server.prisma, request.server.storage, update);
   // Telegram only needs a 200; any per-update failure is reported to the user in-chat.
   reply.send({ ok: true });
 }

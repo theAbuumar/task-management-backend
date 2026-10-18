@@ -947,7 +947,7 @@ export async function notifyIssueRecipients(
     projectId: string;
     actorId: string;
     recipientIds: string[];
-    issue: Pick<Issue, 'id' | 'title' | 'sequence_id' | 'kind'>;
+    issue: Pick<Issue, 'id' | 'title' | 'sequence_id' | 'kind' | 'due_date'>;
     assigned: boolean;
   },
 ): Promise<void> {
@@ -988,9 +988,12 @@ export async function notifyIssueRecipients(
 
   // Telegram for linked recipients.
   const telegramUserIds = new Set(telegramIdentities.map((i) => i.user_id));
-  // «Ознакомлен» right under a new assignment; «Подробнее» opens the card in the bot.
+  // «Ознакомлен» and «Перенести срок» right under a new assignment; «Подробнее»
+  // opens the card in the bot.
+  const assignment = params.assigned && params.issue.kind === 'assignment';
   const buttons = notificationButtons('issue_assigned', params.issue.id, link, {
-    acknowledge: params.assigned && params.issue.kind === 'assignment',
+    acknowledge: assignment,
+    deadline: assignment && Boolean(params.issue.due_date),
   });
   const sends: Promise<unknown>[] = telegramIdentities.map((i) =>
     sendIssueNotification(Number(i.provider_user_id), { ...opts, buttons }),

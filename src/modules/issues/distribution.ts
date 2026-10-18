@@ -133,6 +133,7 @@ export async function distributeIssue(
       sequence_id: number;
       title: string;
       kind: IssueKind;
+      due_date: Date | null;
       head: string;
     }[] = [];
     for (const d of departments) {
@@ -147,7 +148,7 @@ export async function distributeIssue(
           assignees: { create: { user_id: d.head_id!, is_primary: true } },
           labels,
         },
-        select: { id: true, sequence_id: true, title: true, kind: true },
+        select: { id: true, sequence_id: true, title: true, kind: true, due_date: true },
       });
       await recordActivity(tx, {
         workspace_id: workspaceId,

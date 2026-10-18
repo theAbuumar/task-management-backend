@@ -74,32 +74,88 @@ export async function createAttachment(
   }
 
   const storageKey = buildStorageKey(workspaceId, issueId, body.file_name);
+  const attachment = await insertAttachment(prisma, {
+    workspaceId,
+    issueId,
+    uploaderId,
+    storageKey,
+    ...body,
+  });
+  const upload = await storage.presignUpload(storageKey, body.mime_type);
+  return { attachment, upload };
+}
 
-  const attachment = await prisma.$transaction(async (tx) => {
+/** The metadata row and its «file added» history entry. */
+function insertAttachment(
+  prisma: PrismaClient,
+  a: CreateAttachmentBody & {
+    workspaceId: string;
+    issueId: string;
+    uploaderId: string;
+    storageKey: string;
+  },
+): Promise<AttachmentWithUploader> {
+  return prisma.$transaction(async (tx) => {
     const created = await tx.attachment.create({
       data: {
-        workspace_id: workspaceId,
-        issue_id: issueId,
-        uploaded_by_id: uploaderId,
-        file_name: body.file_name,
-        file_size: body.file_size,
-        mime_type: body.mime_type,
-        storage_key: storageKey,
+        workspace_id: a.workspaceId,
+        issue_id: a.issueId,
+        uploaded_by_id: a.uploaderId,
+        file_name: a.file_name,
+        file_size: a.file_size,
+        mime_type: a.mime_type,
+        storage_key: a.storageKey,
       },
       include: INCLUDE_UPLOADER,
     });
     await recordActivity(tx, {
-      workspace_id: workspaceId,
-      issue_id: issueId,
-      actor_id: uploaderId,
+      workspace_id: a.workspaceId,
+      issue_id: a.issueId,
+      actor_id: a.uploaderId,
       action: ACTIVITY_ACTIONS.ATTACHMENT_ADDED,
       new_value: created.file_name,
     });
     return created;
   });
+}
 
-  const upload = await storage.presignUpload(storageKey, body.mime_type);
-  return { attachment, upload };
+/**
+ * Store bytes the server already holds — a file sent to the Telegram bot — as an
+ * attachment of an issue the caller has already checked access to.
+ */
+export async function storeAttachment(
+  prisma: PrismaClient,
+  storage: StorageDriver,
+  a: {
+    workspaceId: string;
+    issueId: string;
+    uploaderId: string;
+    fileName: string;
+    mimeType: string;
+    data: Buffer;
+  },
+): Promise<AttachmentWithUploader> {
+  if (a.data.length > config.ATTACHMENT_MAX_BYTES) {
+    throw AppError.badRequest(
+      `file_size exceeds the maximum allowed (${config.ATTACHMENT_MAX_BYTES} bytes)`,
+    );
+  }
+  const storageKey = buildStorageKey(a.workspaceId, a.issueId, a.fileName);
+  await storage.put(storageKey, a.data, a.mimeType);
+  try {
+    return await insertAttachment(prisma, {
+      workspaceId: a.workspaceId,
+      issueId: a.issueId,
+      uploaderId: a.uploaderId,
+      storageKey,
+      file_name: a.fileName,
+      file_size: a.data.length,
+      mime_type: a.mimeType,
+    });
+  } catch (err) {
+    await storage.delete(storageKey).catch(() => undefined);
+    throw err;
+  }
 }
 
 export async function deleteAttachment(

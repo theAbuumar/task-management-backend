@@ -1,15 +1,17 @@
 // Integration tests for the work bot inside the backend (ADR-011, режим 6 дней):
 // buttons under notifications, the main-menu lists, the issue card, actions with
-// text answers (report, return remark) and the permission checks behind them.
+// text answers (report, return remark, new deadline), files handed in with a
+// report, and the permission checks behind them.
 //
 // Telegram is simulated: updates are POSTed to the webhook, the Bot API is mocked
-// at the `fetch` boundary and its calls are inspected. Accounts are linked to
-// Telegram ids directly in the DB. Runs against a live Postgres; created rows are
-// removed in afterAll.
+// at the `fetch` boundary (including getFile and the file download) and its calls
+// are inspected. Accounts are linked to Telegram ids directly in the DB. Runs
+// against a live Postgres; created rows and stored files are removed in afterAll.
 
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
+import { parseDeadlineInput } from '../src/modules/telegram/views.js';
 import type { FastifyInstance } from 'fastify';
 
 const TS = Date.now();
@@ -36,6 +38,8 @@ let project: string;
 let privateProject: string;
 const states: Record<string, Record<string, string>> = {};
 let calls: BotCall[] = [];
+/** Bytes Telegram hands back for a file_id; an unknown id fails to download. */
+const telegramFiles: Record<string, Buffer> = {};
 
 const api = (path: string) => `/api/v1/workspaces/${SLUG}${path}`;
 const webhook = '/api/v1/auth/telegram/webhook';
@@ -82,6 +86,20 @@ const say = (from: number, text: string) =>
   request(app.server)
     .post(webhook)
     .send({ message: { chat: { id: from }, from: { id: from }, text } });
+/** A document or photo message (`extra` — document/photo/caption/media_group_id). */
+const sendFile = (from: number, extra: object) =>
+  request(app.server)
+    .post(webhook)
+    .send({ message: { chat: { id: from }, from: { id: from }, ...extra } });
+const doc = (fileId: string, fileName: string, extra: object = {}) => ({
+  document: {
+    file_id: fileId,
+    file_name: fileName,
+    mime_type: 'application/pdf',
+    file_size: telegramFiles[fileId]?.length ?? 100,
+  },
+  ...extra,
+});
 
 const sent = (chatId: number) =>
   calls.filter((c) => c.method === 'sendMessage' && c.body.chat_id === chatId);
@@ -146,10 +164,22 @@ beforeEach(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: { body?: string }) => {
+      if (url.startsWith('https://api.telegram.org/file/bot')) {
+        const data = telegramFiles[url.split('/').pop()!];
+        return {
+          ok: Boolean(data),
+          arrayBuffer: async () => new Uint8Array(data ?? []).buffer,
+        };
+      }
       if (!url.startsWith('https://api.telegram.org/bot'))
         throw new Error(`unexpected fetch to ${url}`);
-      calls.push({ method: url.split('/').pop()!, body: JSON.parse(init?.body ?? '{}') });
-      return { ok: true, json: async () => ({ ok: true, result: { message_id: 1 } }) };
+      const call = { method: url.split('/').pop()!, body: JSON.parse(init?.body ?? '{}') };
+      calls.push(call);
+      const result =
+        call.method === 'getFile'
+          ? { file_id: call.body.file_id, file_path: `documents/${call.body.file_id}` }
+          : { message_id: 1 };
+      return { ok: true, json: async () => ({ ok: true, result }) };
     }),
   );
 });
@@ -160,10 +190,15 @@ afterEach(() => {
 
 afterAll(async () => {
   const list = Object.values(emails);
-  await app.prisma.workspace.deleteMany({ where: { slug: SLUG } });
-  await app.prisma.telegramPendingInput.deleteMany({
-    where: { chat_id: { in: Object.values(TG).map(String) } },
+  const stored = await app.prisma.attachment.findMany({
+    where: { workspace: { slug: SLUG } },
+    select: { storage_key: true },
   });
+  for (const a of stored) await app.storage.delete(a.storage_key);
+  await app.prisma.workspace.deleteMany({ where: { slug: SLUG } });
+  const chats = { chat_id: { in: Object.values(TG).map(String) } };
+  await app.prisma.telegramPendingInput.deleteMany({ where: chats });
+  await app.prisma.telegramPendingFile.deleteMany({ where: chats });
   await app.prisma.refreshToken.deleteMany({ where: { user: { email: { in: list } } } });
   await app.prisma.user.deleteMany({ where: { email: { in: list } } });
   await app.close();
@@ -349,5 +384,290 @@ describe('Telegram bot: who may see a card', () => {
     await say(TG.clerk, 'Беру в работу').expect(200);
     const comment = await app.prisma.comment.findFirst({ where: { issue_id: issue.id } });
     expect(comment).toMatchObject({ body: 'Беру в работу', author_id: clerk.id });
+  });
+});
+
+describe('Telegram bot: a report with files (9.T5)', () => {
+  const staged = (chat: number) =>
+    app.prisma.telegramPendingFile.count({ where: { chat_id: String(chat) } });
+  const pendingReview = (issueId: string) =>
+    app.prisma.issueReview.findFirst({
+      where: { issue_id: issueId, decision: 'pending' },
+      include: { attachments: { orderBy: { created_at: 'asc' } } },
+    });
+
+  it('«Сдать на проверку» → document and photo → report: handed in like on the site', async () => {
+    const issue = await createIssue(project, {
+      title: 'План устранения замечаний',
+      kind: 'assignment',
+      controller_id: rector.id,
+      assignee_ids: [dean.id],
+      due_date: new Date(Date.now() + 5 * DAY).toISOString(),
+    });
+    telegramFiles['doc-plan'] = Buffer.from('%PDF-1.4 план');
+    telegramFiles['photo-big'] = Buffer.from('jpeg большой');
+
+    calls = [];
+    await tap(TG.dean, `a:sub:${issue.id}`).expect(200);
+    expect(sent(TG.dean)[0]!.body.text).toContain('Файл');
+
+    calls = [];
+    await sendFile(TG.dean, doc('doc-plan', 'План устранения замечаний.pdf')).expect(200);
+    let reply = sent(TG.dean).at(-1)!;
+    expect(reply.body.text).toContain('План устранения замечаний.pdf');
+    expect(callbackData(reply)).toEqual([`a:snd:${issue.id}`, 'x']);
+
+    calls = [];
+    await sendFile(TG.dean, {
+      photo: [
+        { file_id: 'photo-small', file_size: 5 },
+        { file_id: 'photo-big', file_size: 20 },
+      ],
+    }).expect(200);
+    reply = sent(TG.dean).at(-1)!;
+    expect(reply.body.text).toContain('2 файла');
+    expect(reply.body.text).toMatch(/Фото \d{2}\.\d{2}\.\d{4} \d{2}-\d{2}\.jpg/);
+    // Nothing is fetched or stored until the hand-in.
+    expect(calls.some((c) => c.method === 'getFile')).toBe(false);
+    expect(await app.prisma.attachment.count({ where: { issue_id: issue.id } })).toBe(0);
+
+    calls = [];
+    await say(TG.dean, 'План согласован с кафедрами').expect(200);
+    const review = await pendingReview(issue.id);
+    expect(review?.report).toBe('План согласован с кафедрами');
+    expect(review?.attachments.map((a) => [a.file_name, a.mime_type, a.uploaded_by_id])).toEqual([
+      ['План устранения замечаний.pdf', 'application/pdf', dean.id],
+      [expect.stringMatching(/^Фото .+\.jpg$/), 'image/jpeg', dean.id],
+    ]);
+    // Only the largest size of the photo is fetched; the bytes land in storage.
+    expect(calls.filter((c) => c.method === 'getFile').map((c) => c.body.file_id)).toEqual([
+      'doc-plan',
+      'photo-big',
+    ]);
+    const pdf = await app.storage.inspect(review!.attachments[0]!.storage_key, 64);
+    expect(pdf?.head.toString()).toBe('%PDF-1.4 план');
+    expect(String(sent(TG.dean).at(-1)!.body.text)).toContain('Сдано на проверку · 📎 2 файла');
+    expect(await staged(TG.dean)).toBe(0);
+    // The file shows up in the issue history, as an upload from the site does.
+    expect(
+      await app.prisma.activityLog.count({
+        where: { issue_id: issue.id, action: 'issue.attachment_added' },
+      }),
+    ).toBe(2);
+
+    // The controller's card lists the report files.
+    calls = [];
+    await tap(TG.rector, `c:${issue.id}`).expect(200);
+    expect(String(edits()[0]!.body.text)).toContain('📎 План устранения замечаний.pdf, Фото');
+  });
+
+  it('a file sent first: «по какой задаче?» → the caption is the report', async () => {
+    const issue = await createIssue(project, {
+      title: 'Справка о практике',
+      kind: 'assignment',
+      controller_id: rector.id,
+      assignee_ids: [clerk.id],
+    });
+    telegramFiles['doc-ref'] = Buffer.from('справка');
+
+    calls = [];
+    await sendFile(TG.clerk, doc('doc-ref', 'Справка.docx', { caption: 'Справка готова' })).expect(
+      200,
+    );
+    const pick = sent(TG.clerk)[0]!;
+    expect(pick.body.text).toContain('По какой задаче');
+    expect(callbackData(pick)).toEqual([`a:fil:${issue.id}`, 'x']);
+
+    calls = [];
+    await tap(TG.clerk, `a:fil:${issue.id}`).expect(200);
+    const review = await pendingReview(issue.id);
+    expect(review?.report).toBe('Справка готова');
+    expect(review?.attachments.map((a) => a.file_name)).toEqual(['Справка.docx']);
+    expect(String(edits()[0]!.body.text)).toContain('Сдано на проверку · 📎 1 файл');
+
+    // Nothing to hand in → the file is not kept.
+    calls = [];
+    await sendFile(TG.outsider, doc('doc-ref', 'Справка.docx')).expect(200);
+    expect(sent(TG.outsider)[0]!.body.text).toContain('нет задач');
+    expect(await staged(TG.outsider)).toBe(0);
+  });
+
+  it('an album is one hand-in: one question, every file attached', async () => {
+    const issue = await createIssue(project, {
+      title: 'Ведомости за семестр',
+      kind: 'assignment',
+      controller_id: rector.id,
+      assignee_ids: [clerk.id],
+    });
+    telegramFiles['alb-1'] = Buffer.from('ведомость 1');
+    telegramFiles['alb-2'] = Buffer.from('ведомость 2');
+
+    calls = [];
+    await sendFile(
+      TG.clerk,
+      doc('alb-1', 'Ведомость 1.pdf', { media_group_id: 'g1', caption: 'Обе ведомости' }),
+    ).expect(200);
+    await sendFile(TG.clerk, doc('alb-2', 'Ведомость 2.pdf', { media_group_id: 'g1' })).expect(200);
+    expect(sent(TG.clerk)).toHaveLength(1);
+
+    await tap(TG.clerk, `a:fil:${issue.id}`).expect(200);
+    const review = await pendingReview(issue.id);
+    expect(review?.report).toBe('Обе ведомости');
+    expect(review?.attachments.map((a) => a.file_name)).toEqual([
+      'Ведомость 1.pdf',
+      'Ведомость 2.pdf',
+    ]);
+  });
+
+  it('«Сдать» without a report, /cancel, size limit, a failed download, files only with a hand-in', async () => {
+    const issue = await createIssue(project, {
+      title: 'Протокол заседания',
+      kind: 'assignment',
+      controller_id: rector.id,
+      assignee_ids: [clerk.id],
+    });
+
+    // Over Telegram's 20 MB download limit: refused before anything is kept.
+    calls = [];
+    await sendFile(
+      TG.clerk,
+      doc('huge', 'Запись.mp4', { document: { file_id: 'huge', file_size: 25 * 1024 * 1024 } }),
+    ).expect(200);
+    expect(sent(TG.clerk)[0]!.body.text).toContain('больше 20 МБ');
+    expect(await staged(TG.clerk)).toBe(0);
+
+    // /cancel drops the question together with its files.
+    await tap(TG.clerk, `a:sub:${issue.id}`).expect(200);
+    await sendFile(TG.clerk, doc('doc-a', 'Черновик.pdf')).expect(200);
+    expect(await staged(TG.clerk)).toBe(1);
+    await say(TG.clerk, '/cancel').expect(200);
+    expect(await staged(TG.clerk)).toBe(0);
+
+    // Telegram cannot give the file back: nothing is stored or handed in.
+    await tap(TG.clerk, `a:sub:${issue.id}`).expect(200);
+    await sendFile(TG.clerk, doc('broken', 'Протокол.pdf')).expect(200);
+    calls = [];
+    await say(TG.clerk, 'Протокол готов').expect(200);
+    expect(sent(TG.clerk).at(-1)!.body.text).toContain('Не удалось получить файл');
+    expect(await app.prisma.issueReview.count({ where: { issue_id: issue.id } })).toBe(0);
+    expect(await app.prisma.attachment.count({ where: { issue_id: issue.id } })).toBe(0);
+
+    // «Сдать на проверку» under the files: no report needed in this workspace.
+    telegramFiles['doc-p'] = Buffer.from('протокол');
+    await tap(TG.clerk, `a:sub:${issue.id}`).expect(200);
+    await sendFile(TG.clerk, doc('doc-p', 'Протокол.pdf')).expect(200);
+    calls = [];
+    await tap(TG.clerk, `a:snd:${issue.id}`).expect(200);
+    const review = await pendingReview(issue.id);
+    expect(review?.report).toBeNull();
+    expect(review?.attachments.map((a) => a.file_name)).toEqual(['Протокол.pdf']);
+    expect(String(edits()[0]!.body.text)).toContain('Сдано на проверку');
+    // A second tap on the same button does not hand in twice.
+    await tap(TG.clerk, `a:snd:${issue.id}`).expect(200);
+    expect(await app.prisma.issueReview.count({ where: { issue_id: issue.id } })).toBe(1);
+
+    // While the bot waits for a return remark, a file is not taken.
+    await tap(TG.rector, `a:ret:${issue.id}`).expect(200);
+    calls = [];
+    await sendFile(TG.rector, doc('doc-p', 'Замечания.pdf')).expect(200);
+    expect(sent(TG.rector)[0]!.body.text).toContain('жду текст — замечание');
+    expect(await staged(TG.rector)).toBe(0);
+    await say(TG.rector, '/cancel').expect(200);
+  });
+});
+
+describe('Telegram bot: asking to move the deadline (9.T5)', () => {
+  it('the assignee sends a date and a reason; the controller gets «Одобрить» / «Отклонить»', async () => {
+    const issue = await createIssue(project, {
+      title: 'Отчёт по НИР',
+      kind: 'assignment',
+      controller_id: rector.id,
+      assignee_ids: [clerk.id],
+      due_date: new Date(Date.now() + 3 * DAY).toISOString(),
+    });
+
+    // Right under the new assignment, and on the card.
+    expect(callbackData(sent(TG.clerk).at(-1)!)).toEqual(
+      expect.arrayContaining([`a:ack:${issue.id}`, `a:due:${issue.id}`]),
+    );
+    calls = [];
+    await tap(TG.clerk, `c:${issue.id}`).expect(200);
+    expect(callbackData(edits()[0]!)).toContain(`a:due:${issue.id}`);
+
+    calls = [];
+    await tap(TG.clerk, `a:due:${issue.id}`).expect(200);
+    expect(sent(TG.clerk)[0]!.body.text).toContain('новый срок');
+
+    // Not a date: the question stays open.
+    calls = [];
+    await say(TG.clerk, 'попозже').expect(200);
+    expect(sent(TG.clerk)[0]!.body.text).toContain('Начните с даты');
+    expect(
+      await app.prisma.telegramPendingInput.count({ where: { chat_id: String(TG.clerk) } }),
+    ).toBe(1);
+
+    const target = new Date(Date.now() + 10 * DAY);
+    const [d, m, y] = target
+      .toLocaleDateString('ru-RU', {
+        timeZone: 'Asia/Tashkent',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      })
+      .split('.');
+    calls = [];
+    await say(TG.clerk, `${d}.${m}.${y} ждём данные от кафедр`).expect(200);
+    const request = await app.prisma.deadlineChangeRequest.findFirst({
+      where: { issue_id: issue.id },
+    });
+    expect(request).toMatchObject({ status: 'pending', reason: 'ждём данные от кафедр' });
+    expect(request?.new_due_date.toISOString()).toBe(`${y}-${m}-${d}T12:00:00.000Z`);
+
+    const answer = sent(TG.clerk).at(-1)!;
+    expect(answer.body.text).toContain('Запрос на перенос срока');
+    expect(callbackData(answer)).not.toContain(`a:due:${issue.id}`);
+    const toRector = sent(TG.rector).at(-1)!;
+    expect(toRector.body.text).toContain('просит перенести срок');
+    expect(callbackData(toRector)).toEqual(
+      expect.arrayContaining([`a:dok:${issue.id}`, `a:dno:${issue.id}`]),
+    );
+
+    // A second request waits for the decision on the first; the controller cannot ask.
+    calls = [];
+    await tap(TG.clerk, `a:due:${issue.id}`).expect(200);
+    expect(answers()[0]!.body.text).toContain('ждёт решения');
+    calls = [];
+    await tap(TG.rector, `a:due:${issue.id}`).expect(200);
+    expect(answers()[0]!.body).toMatchObject({ show_alert: true });
+    expect(
+      await app.prisma.telegramPendingInput.count({ where: { chat_id: String(TG.rector) } }),
+    ).toBe(0);
+  });
+});
+
+describe('parseDeadlineInput', () => {
+  const tz = 'Asia/Tashkent';
+  const now = new Date('2026-10-18T09:00:00Z');
+  const parse = (text: string) => parseDeadlineInput(text, tz, now);
+
+  it('reads a date with or without a year, then the reason', () => {
+    expect(parse('30.10 ждём данные')).toEqual({
+      new_due_date: '2026-10-30T12:00:00.000Z',
+      reason: 'ждём данные',
+    });
+    expect(parse('30.10.2026 — нет подписи')).toMatchObject({
+      new_due_date: '2026-10-30T12:00:00.000Z',
+      reason: 'нет подписи',
+    });
+    expect(parse('1/11/27 сессия')).toMatchObject({ new_due_date: '2027-11-01T12:00:00.000Z' });
+    // January from October means the coming January.
+    expect(parse('15.01 сессия')).toMatchObject({ new_due_date: '2027-01-15T12:00:00.000Z' });
+  });
+
+  it('explains what is wrong', () => {
+    expect(parse('завтра')).toMatchObject({ error: expect.stringContaining('Начните с даты') });
+    expect(parse('17.10 вчера')).toMatchObject({ error: expect.stringContaining('прошла') });
+    expect(parse('31.02 причина')).toMatchObject({ error: expect.stringContaining('нет') });
+    expect(parse('30.10')).toMatchObject({ error: expect.stringContaining('причину') });
   });
 });

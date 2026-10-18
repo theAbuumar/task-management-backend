@@ -4,7 +4,7 @@
 
 import { config } from '../../config/index.js';
 import { pluralize } from '../../lib/plural.js';
-import { daysBetween, localDate } from '../../lib/tz.js';
+import { addDays, daysBetween, localDate } from '../../lib/tz.js';
 import { escapeHtml, type InlineButton } from '../auth/telegram.service.js';
 
 // ─── callback_data (≤ 64 bytes: prefix + uuid) ────────────────────────────────
@@ -17,10 +17,28 @@ export const CB = {
   act: 'a:',
   /** page counter button, does nothing */
   noop: 'n',
+  /** drop the pending question and the files sent for a hand-in */
+  cancel: 'x',
 } as const;
 
 export type ListFilter = 'my' | 'today' | 'overdue' | 'review' | 'control';
-export type ActionVerb = 'ack' | 'sub' | 'done' | 'ok' | 'ret' | 'cmt' | 'dok' | 'dno';
+/**
+ * `fil` — hand in the files just sent, for this issue (asked when a file arrives
+ * without a question); `snd` — hand in now with the files and their caption;
+ * `due` — ask to move the deadline.
+ */
+export type ActionVerb =
+  | 'ack'
+  | 'sub'
+  | 'done'
+  | 'ok'
+  | 'ret'
+  | 'cmt'
+  | 'dok'
+  | 'dno'
+  | 'due'
+  | 'fil'
+  | 'snd';
 
 export const LIST_TITLES: Record<ListFilter, string> = {
   my: '📋 Мои задачи',
@@ -60,6 +78,7 @@ export const MENU_KEYBOARD = {
 export const PAGE_SIZE = 8;
 
 const DAYS: [string, string, string] = ['день', 'дня', 'дней'];
+export const FILES: [string, string, string] = ['файл', 'файла', 'файлов'];
 
 /** URL buttons only for a public https frontend — Telegram rejects localhost links. */
 export function canLinkButtons(): boolean {
@@ -169,7 +188,12 @@ export interface CardIssue {
   primary: { display_name: string; acknowledged_at: Date | null } | null;
   others: { display_name: string }[];
   controller: { display_name: string } | null;
-  pendingReview: { submitted_at: Date; report: string | null; by: { display_name: string } } | null;
+  pendingReview: {
+    submitted_at: Date;
+    report: string | null;
+    by: { display_name: string };
+    files: string[];
+  } | null;
   pendingDeadline: { old_due: Date | null; new_due: Date; reason: string } | null;
 }
 
@@ -179,6 +203,7 @@ export interface CardRights {
   complete: boolean;
   decide: boolean;
   decideDeadline: boolean;
+  requestDeadline: boolean;
 }
 
 export function cardMessage(
@@ -226,6 +251,7 @@ export function cardMessage(
         r.report ? `:\n«${escapeHtml(truncate(r.report, 400))}»` : ''
       }`,
     );
+    if (r.files.length) lines.push(`📎 ${r.files.map((f) => escapeHtml(f)).join(', ')}`);
   }
   if (issue.pendingDeadline) {
     const d = issue.pendingDeadline;
@@ -253,6 +279,8 @@ export function cardMessage(
       { text: '✖️ Отклонить', callback_data: act('dno') },
     ]);
   }
+  if (rights.requestDeadline)
+    buttons.push([{ text: '📅 Перенести срок', callback_data: act('due') }]);
   buttons.push([
     { text: '💬 Комментарий', callback_data: act('cmt') },
     { text: '🔄 Обновить', callback_data: `${CB.card}${issue.id}` },
@@ -271,12 +299,16 @@ export function notificationButtons(
     | 'other',
   issueId: string,
   url: string,
-  opts: { acknowledge?: boolean } = {},
+  opts: { acknowledge?: boolean; deadline?: boolean } = {},
 ): InlineButton[][] {
   const act = (verb: ActionVerb) => `${CB.act}${verb}:${issueId}`;
   const rows: InlineButton[][] = [];
-  if (kind === 'issue_assigned' && opts.acknowledge)
-    rows.push([{ text: '👁 Ознакомлен', callback_data: act('ack') }]);
+  if (kind === 'issue_assigned') {
+    const row: InlineButton[] = [];
+    if (opts.acknowledge) row.push({ text: '👁 Ознакомлен', callback_data: act('ack') });
+    if (opts.deadline) row.push({ text: '📅 Перенести срок', callback_data: act('due') });
+    if (row.length) rows.push(row);
+  }
   if (kind === 'review_requested') {
     rows.push([
       { text: '✅ Принять', callback_data: act('ok') },
@@ -312,12 +344,102 @@ export const NOT_LINKED = [
 
 export const PROMPTS = {
   submit: (key: string) =>
-    `📝 Напишите краткий отчёт по <b>${escapeHtml(key)}</b>: что сделано. Файлы можно приложить на сайте.\n\n/cancel — отменить`,
+    `📝 Напишите краткий отчёт по <b>${escapeHtml(key)}</b>: что сделано.\n\n📎 Файл — документ или фото — пришлите до отчёта или с подписью-отчётом.\n\n/cancel — отменить`,
   return: (key: string) =>
     `↩️ Напишите, что нужно доработать по <b>${escapeHtml(key)}</b> — замечание увидит исполнитель.\n\n/cancel — отменить`,
   comment: (key: string) =>
     `💬 Напишите комментарий к <b>${escapeHtml(key)}</b>.\n\n/cancel — отменить`,
+  report: (key: string, files: number) =>
+    `📝 Напишите краткий отчёт по <b>${escapeHtml(key)}</b>: что сделано. ${pluralize(files, FILES)} — приложатся к нему.\n\n/cancel — отменить`,
+  deadline: (key: string, due: string | null) =>
+    `📅 Напишите новый срок по <b>${escapeHtml(key)}</b> и причину переноса, например:\n<code>30.10 ждём данные от кафедр</code>${
+      due ? `\n\nСейчас срок — ${due}. Решение примет контролёр.` : ''
+    }\n\n/cancel — отменить`,
 };
+
+/** Files sent for a hand-in, with «Сдать» / «Отмена». */
+export function stagedFilesMessage(
+  issueId: string,
+  key: string,
+  files: string[],
+  caption: string | null,
+): { text: string; buttons: InlineButton[][] } {
+  const lines = [
+    `📎 К отчёту по <b>${escapeHtml(key)}</b> — ${pluralize(files.length, FILES)}:`,
+    ...files.map((f) => `• ${escapeHtml(f)}`),
+    '',
+    caption
+      ? `Отчёт — подпись к файлу: «${escapeHtml(truncate(caption, 300))}»\nНажмите «Сдать на проверку» или напишите другой отчёт сообщением.`
+      : 'Напишите краткий отчёт сообщением — с ним работа уйдёт на проверку.',
+  ];
+  return {
+    text: lines.join('\n'),
+    buttons: [
+      [
+        { text: '📝 Сдать на проверку', callback_data: `${CB.act}snd:${issueId}` },
+        { text: '✖️ Отмена', callback_data: CB.cancel },
+      ],
+    ],
+  };
+}
+
+/** A file arrived without a question: which task is it a report for? */
+export function pickIssueMessage(
+  files: string[],
+  rows: { id: string; key: string; title: string }[],
+): { text: string; buttons: InlineButton[][] } {
+  const got =
+    files.length === 1
+      ? `📎 Получен файл «${escapeHtml(files[0]!)}».`
+      : `📎 Получено ${pluralize(files.length, FILES)}.`;
+  if (rows.length === 0) {
+    return {
+      text: `${got}\n\nСейчас у вас нет задач, которые нужно сдать на проверку, поэтому файл не сохранён.`,
+      buttons: [],
+    };
+  }
+  return {
+    text: `${got}\n\nПо какой задаче сдать отчёт?`,
+    buttons: [
+      ...rows.map((r) => [
+        { text: `${r.key} · ${truncate(r.title, 40)}`, callback_data: `${CB.act}fil:${r.id}` },
+      ]),
+      [{ text: '✖️ Отмена', callback_data: CB.cancel }],
+    ],
+  };
+}
+
+/**
+ * «30.10 ждём данные от кафедр» → the new deadline as the web sends it (noon UTC of
+ * the chosen day) and the reason. Without a year the nearest such date is meant: a
+ * date that passed more than two months ago is next year's.
+ */
+export function parseDeadlineInput(
+  text: string,
+  timeZone: string,
+  now = new Date(),
+): { new_due_date: string; reason: string } | { error: string } {
+  const m = /^(\d{1,2})[./](\d{1,2})(?:[./](\d{4}|\d{2}))?(?!\d)\s*[—–\-:,]?\s*([\s\S]*)$/.exec(
+    text.trim(),
+  );
+  if (!m) return { error: 'Начните с даты, например: <code>30.10 ждём данные от кафедр</code>' };
+  const today = localDate(now, timeZone);
+  const [day, month] = [Number(m[1]), Number(m[2])];
+  let year = m[3] ? Number(m[3].length === 2 ? `20${m[3]}` : m[3]) : Number(today.slice(0, 4));
+  const iso = (y: number) =>
+    `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  if (!m[3] && daysBetween(iso(year), today) > 60) year += 1;
+  const date = iso(year);
+  const parsed = new Date(`${date}T12:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+    return { error: 'Такой даты нет. Напишите дату как 30.10 или 30.10.2026.' };
+  }
+  if (date < today) return { error: 'Эта дата уже прошла — укажите будущую.' };
+  if (date > addDays(today, 3 * 366)) return { error: 'Слишком далёкая дата.' };
+  const reason = m[4]!.trim();
+  if (reason.length < 3) return { error: 'После даты напишите причину переноса.' };
+  return { new_due_date: parsed.toISOString(), reason };
+}
 
 /** Russian text for the error codes a bot action can hit. */
 export function errorText(code: string | undefined): string {
@@ -336,6 +458,10 @@ export function errorText(code: string | undefined): string {
       return 'В проекте нет состояния «На проверке».';
     case 'REVIEW_REQUIRED':
       return 'Поручение закрывает контролёр — сдайте его на проверку.';
+    case 'DEADLINE_REQUEST_PENDING':
+      return 'Запрос на перенос срока уже ждёт решения контролёра.';
+    case 'FILE_DOWNLOAD_FAILED':
+      return 'Не удалось получить файл из Telegram. Пришлите его ещё раз или приложите на сайте.';
     case 'FORBIDDEN':
       return 'Недостаточно прав.';
     case 'NOT_FOUND':

@@ -68,10 +68,30 @@ export interface TelegramUser {
   username?: string;
 }
 
+/** A file sent as a document (`file_name` and `mime_type` come from the sender). */
+export interface TelegramDocument {
+  file_id: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
+}
+
+/** One size of a sent photo; Telegram lists them from the smallest to the largest. */
+export interface TelegramPhotoSize {
+  file_id: string;
+  file_size?: number;
+}
+
 export interface TelegramMessage {
   chat: { id: number };
   from?: TelegramUser;
   text?: string;
+  /** The text under a document or photo. */
+  caption?: string;
+  document?: TelegramDocument;
+  photo?: TelegramPhotoSize[];
+  /** Shared by the documents/photos of one album; each arrives as its own update. */
+  media_group_id?: string;
 }
 
 export interface TelegramCallbackQuery {
@@ -163,6 +183,19 @@ export async function editBotMessage(
     link_preview_options: { is_disabled: true },
     ...opts,
   });
+}
+
+/** Bots can download files up to 20 MB with getFile (Bot API limit). */
+export const BOT_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
+
+/** Download a file a user sent to the bot (getFile, then the file URL). */
+export async function downloadBotFile(fileId: string): Promise<Buffer> {
+  const { botToken } = requireTelegramConfig();
+  const file = await callBotApi<{ file_path?: string }>('getFile', { file_id: fileId });
+  if (!file?.file_path) throw AppError.badRequest('Telegram getFile failed');
+  const res = await fetch(`${TELEGRAM_API_BASE}/file/bot${botToken}/${file.file_path}`);
+  if (!res.ok) throw AppError.badRequest('Telegram file download failed');
+  return Buffer.from(await res.arrayBuffer());
 }
 
 /** `<`, `>` and `&` in user text would break an HTML message. */

@@ -526,6 +526,7 @@ export async function telegramInit(
  */
 export async function handleTelegramUpdate(
   prisma: PrismaClient,
+  storage: StorageDriver,
   update: TelegramUpdate,
 ): Promise<void> {
   // Button tap → confirm the login, or respond to a workspace invite.
@@ -550,7 +551,7 @@ export async function handleTelegramUpdate(
 
     // Everything else is the work bot: menu lists, issue cards, action buttons.
     if (!data.startsWith(CONFIRM_CALLBACK_PREFIX)) {
-      await handleBotCallback(prisma, cq);
+      await handleBotCallback(prisma, storage, cq);
       return;
     }
     const token = data.slice(CONFIRM_CALLBACK_PREFIX.length);
@@ -567,13 +568,18 @@ export async function handleTelegramUpdate(
   }
 
   // `/start <token>` → send the confirm button (only for a live pending token).
-  // Any other message — menu, commands, a requested report — goes to the work bot.
+  // Any other message — menu, commands, a requested report, a file to hand in —
+  // goes to the work bot.
   const message = update.message;
+  if (message?.document || message?.photo) {
+    await handleBotMessage(prisma, storage, message);
+    return;
+  }
   if (message?.text) {
     const chatId = message.chat.id;
     const token = parseStartToken(message.text);
     if (!token) {
-      await handleBotMessage(prisma, message);
+      await handleBotMessage(prisma, storage, message);
       return;
     }
 

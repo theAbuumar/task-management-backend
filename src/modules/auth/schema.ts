@@ -128,6 +128,19 @@ export const TelegramUpdateSchema = z
         chat: z.object({ id: z.number() }),
         from: TelegramUserSchema.optional(),
         text: z.string().optional(),
+        caption: z.string().optional(),
+        document: z
+          .object({
+            file_id: z.string(),
+            file_name: z.string().optional(),
+            mime_type: z.string().optional(),
+            file_size: z.number().optional(),
+          })
+          .optional(),
+        photo: z
+          .array(z.object({ file_id: z.string(), file_size: z.number().optional() }))
+          .optional(),
+        media_group_id: z.string().optional(),
       })
       .optional(),
     callback_query: z
