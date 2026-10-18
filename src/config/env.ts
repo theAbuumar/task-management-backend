@@ -173,7 +173,11 @@ export type Env = z.infer<typeof envSchema>;
  * Throws an `Error` whose message aggregates every validation failure.
  */
 export function parseEnv(source: NodeJS.ProcessEnv): Env {
-  const result = envSchema.safeParse(source);
+  // An empty value means "not set": docker compose and `.env` files pass
+  // `TELEGRAM_BOT_TOKEN=` as "", which would otherwise fail `min(1)` instead of
+  // falling back to the default / leaving the optional setting off (13.D3).
+  const present = Object.fromEntries(Object.entries(source).filter(([, v]) => v !== ''));
+  const result = envSchema.safeParse(present);
 
   if (!result.success) {
     const issues = result.error.issues

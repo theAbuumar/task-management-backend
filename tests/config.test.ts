@@ -24,6 +24,26 @@ describe('parseEnv', () => {
     expect(env.PORT).toBe(8080);
   });
 
+  it('treats empty values as unset (compose / .env with blank optional lines)', () => {
+    const env = parseEnv({
+      ...valid,
+      TELEGRAM_BOT_TOKEN: '',
+      DEMO_TELEGRAM_ID: '',
+      SESSION_COOKIE_SECURE: '',
+      SMTP_HOST: '',
+      PORT: '',
+    });
+    expect(env.TELEGRAM_BOT_TOKEN).toBeUndefined();
+    expect(env.DEMO_TELEGRAM_ID).toBeUndefined();
+    expect(env.SESSION_COOKIE_SECURE).toBeUndefined();
+    expect(env.SMTP_HOST).toBeUndefined();
+    expect(env.PORT).toBe(3000);
+  });
+
+  it('still requires DATABASE_URL when it is blank', () => {
+    expect(() => parseEnv({ ...valid, DATABASE_URL: '' })).toThrow(/DATABASE_URL/);
+  });
+
   it('rejects a non-postgres DATABASE_URL', () => {
     expect(() => parseEnv({ ...valid, DATABASE_URL: 'mysql://x' })).toThrow(/PostgreSQL/);
   });
