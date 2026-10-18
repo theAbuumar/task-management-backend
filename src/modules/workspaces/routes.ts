@@ -13,6 +13,10 @@ import {
   removeMemberSchema,
   inviteMemberSchema,
   leaveWorkspaceSchema,
+  listMemberAccessSchema,
+  deactivateMemberSchema,
+  activateMemberSchema,
+  resetMemberIdentitySchema,
 } from './schema.js';
 import { inviteExistingUserSchema } from '../member-invites/schema.js';
 import {
@@ -28,6 +32,10 @@ import {
   inviteMemberHandler,
   inviteExistingUserHandler,
   leaveWorkspaceHandler,
+  listMemberAccessHandler,
+  deactivateMemberHandler,
+  activateMemberHandler,
+  resetMemberIdentityHandler,
 } from './controller.js';
 
 export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
@@ -132,5 +140,42 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
       config: { audit: { action: 'invite.sent', target: 'user', bodyField: 'user_id' } },
     },
     inviteExistingUserHandler,
+  );
+
+  // Members' access (12.B7, ADR-026): deactivation, last sign-ins, login methods.
+  app.get(
+    '/:workspaceSlug/members/access',
+    {
+      schema: listMemberAccessSchema,
+      preHandler: [authenticate, requireWorkspaceMember('admin')],
+    },
+    listMemberAccessHandler,
+  );
+  app.post(
+    '/:workspaceSlug/members/:userId/deactivate',
+    {
+      schema: deactivateMemberSchema,
+      preHandler: [authenticate, requireWorkspaceMember('admin')],
+      config: { audit: { action: 'member.deactivated', target: 'user', param: 'userId' } },
+    },
+    deactivateMemberHandler,
+  );
+  app.post(
+    '/:workspaceSlug/members/:userId/activate',
+    {
+      schema: activateMemberSchema,
+      preHandler: [authenticate, requireWorkspaceMember('admin')],
+      config: { audit: { action: 'member.activated', target: 'user', param: 'userId' } },
+    },
+    activateMemberHandler,
+  );
+  // Audited in the handler (the provider goes into the entry).
+  app.delete(
+    '/:workspaceSlug/members/:userId/identities/:provider',
+    {
+      schema: resetMemberIdentitySchema,
+      preHandler: [authenticate, requireWorkspaceMember('admin')],
+    },
+    resetMemberIdentityHandler,
   );
 }

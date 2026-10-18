@@ -43,12 +43,19 @@ async function findDepartment(
   return department;
 }
 
-/** The head of a department must be a member of the workspace. */
+/** The head of a department must be a member of the workspace with access (12.B7). */
 async function assertMember(prisma: PrismaClient, workspaceId: string, userId: string) {
   const member = await prisma.workspaceMember.findUnique({
     where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } },
   });
   if (!member) throw AppError.badRequest('head_id must be a member of this workspace');
+  if (member.deactivated_at) {
+    throw new AppError(
+      400,
+      'MEMBER_DEACTIVATED',
+      "head_id: this member's access to the workspace is turned off",
+    );
+  }
 }
 
 /** All departments of the workspace with head + member count, ordered for display. */

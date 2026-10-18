@@ -67,6 +67,14 @@ export function requireWorkspaceMember(
       where: { workspace_id_user_id: { workspace_id: workspace.id, user_id: request.userId } },
     });
     if (!member) throw AppError.forbidden('You are not a member of this workspace');
+    // An admin turned this member's access off (12.B7, ADR-026).
+    if (member.deactivated_at) {
+      throw new AppError(
+        403,
+        'MEMBER_DEACTIVATED',
+        'Your access to this workspace has been turned off by an admin',
+      );
+    }
 
     // Guests read; every write except the personal ones above is refused here,
     // in one place for all modules (12.B4).

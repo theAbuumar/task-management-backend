@@ -126,8 +126,9 @@ function html(buttons?: InlineButton[][]) {
 // ─── Lists ────────────────────────────────────────────────────────────────────
 
 async function listPage(prisma: PrismaClient, userId: string, filter: ListFilter, page: number) {
+  // Workspaces where an admin turned the user's access off are skipped (12.B7).
   const memberships = await prisma.workspaceMember.findMany({
-    where: { user_id: userId },
+    where: { user_id: userId, deactivated_at: null },
     select: { user_id: true, role: true, workspace: { select: { id: true, timezone: true } } },
   });
   const now = new Date();
@@ -235,7 +236,8 @@ async function loadCard(prisma: PrismaClient, userId: string, issueId: string) {
   const member = await prisma.workspaceMember.findUnique({
     where: { workspace_id_user_id: { workspace_id: issue.workspace_id, user_id: userId } },
   });
-  if (!member) return null;
+  // No card for a workspace the user was turned off from (12.B7) — as if not a member.
+  if (!member || member.deactivated_at) return null;
   if (issue.project.visibility === 'private' && !seesAllProjects(member)) {
     const inProject = await prisma.projectMember.findUnique({
       where: { project_id_user_id: { project_id: issue.project.id, user_id: userId } },
@@ -544,7 +546,7 @@ function incomingFile(message: TelegramMessage) {
 /** My open work that waits to be handed in for review, across my workspaces. */
 async function submittable(prisma: PrismaClient, userId: string) {
   const memberships = await prisma.workspaceMember.findMany({
-    where: { user_id: userId },
+    where: { user_id: userId, deactivated_at: null },
     orderBy: { created_at: 'asc' },
     select: { user_id: true, role: true, workspace: { select: { id: true, timezone: true } } },
   });

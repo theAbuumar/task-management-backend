@@ -99,7 +99,8 @@ export const INCLUDE_RELATIONS = {
 
 /**
  * The controller and the assignees must be members of the workspace who can act
- * on the task — a guest is read-only (12.B4), so they cannot be assigned.
+ * on the task — a guest is read-only (12.B4) and a deactivated member has no
+ * access (12.B7), so neither can be assigned.
  */
 async function assertAssignable(
   prisma: PrismaClient,
@@ -111,10 +112,17 @@ async function assertAssignable(
   if (ids.length === 0) return;
   const members = await prisma.workspaceMember.findMany({
     where: { workspace_id: workspaceId, user_id: { in: ids } },
-    select: { role: true },
+    select: { role: true, deactivated_at: true },
   });
   if (members.length !== ids.length) {
     throw AppError.badRequest(`${field} must be a member of this workspace`);
+  }
+  if (members.some((m) => m.deactivated_at)) {
+    throw new AppError(
+      400,
+      'MEMBER_DEACTIVATED',
+      `${field}: this member's access to the workspace is turned off`,
+    );
   }
   if (members.some((m) => m.role === 'guest')) {
     throw new AppError(400, 'GUEST_NOT_ASSIGNABLE', `${field}: a guest cannot be assigned`);
@@ -979,7 +987,7 @@ export async function notifyIssueRecipients(
       select: {
         name: true,
         identifier: true,
-        workspace: { select: { slug: true, timezone: true } },
+        workspace: { select: { id: true, slug: true, timezone: true } },
       },
     }),
     prisma.user.findUnique({ where: { id: params.actorId }, select: { display_name: true } }),
@@ -999,12 +1007,7 @@ export async function notifyIssueRecipients(
   };
 
   // Telegram or email per recipient, by their notification settings (8.B2).
-  const routed = await routeRecipients(
-    prisma,
-    recipients,
-    'issue_assigned',
-    project.workspace.timezone,
-  );
+  const routed = await routeRecipients(prisma, recipients, 'issue_assigned', project.workspace);
   // «Ознакомлен» and «Перенести срок» right under a new assignment; «Подробнее»
   // opens the card in the bot.
   const assignment = params.assigned && params.issue.kind === 'assignment';

@@ -110,6 +110,8 @@ const memberShape = {
     role: { type: 'string', enum: ['owner', 'admin', 'member', 'guest'] },
     department_id: { type: 'string', nullable: true },
     position: { type: 'string', nullable: true },
+    // Access turned off by an admin (12.B7); null = active.
+    deactivated_at: { type: 'string', format: 'date-time', nullable: true },
     created_at: { type: 'string', format: 'date-time' },
     updated_at: { type: 'string', format: 'date-time' },
     user: {
@@ -312,4 +314,98 @@ export const inviteMemberSchema: FastifySchema = {
     },
   },
   response: { 201: inviteShape },
+};
+
+// ─── Members' access (Ф12 12.B7, ADR-026) ─────────────────────────────────────
+
+export const MemberIdentityParamsSchema = z.object({
+  userId: z.string().uuid(),
+  provider: z.enum(['google', 'github', 'telegram']),
+});
+
+const memberParams = {
+  type: 'object',
+  required: ['workspaceSlug', 'userId'],
+  properties: { workspaceSlug: { type: 'string' }, userId: { type: 'string', format: 'uuid' } },
+} as const;
+
+const accessDescription =
+  'Admin and owner only. Turning access off is per workspace: the account, the member’s tasks and history stay; ' +
+  'their requests to this workspace answer 403 MEMBER_DEACTIVATED, nothing about its tasks reaches them by email or ' +
+  'Telegram, and they cannot be assigned (400 MEMBER_DEACTIVATED). If no workspace with access is left, all their ' +
+  'sessions end and sign-in is refused. The owner and yourself cannot be changed (403).';
+
+export const listMemberAccessSchema: FastifySchema = {
+  tags: ['Workspaces'],
+  summary: 'Members’ access: deactivation, last sign-in, devices, login methods (admin+)',
+  description: accessDescription,
+  security,
+  params: { type: 'object', properties: { workspaceSlug: { type: 'string' } } },
+  response: {
+    200: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string' },
+          deactivated_at: { type: 'string', format: 'date-time', nullable: true },
+          deactivated_by: {
+            type: 'object',
+            nullable: true,
+            properties: { id: { type: 'string' }, display_name: { type: 'string' } },
+          },
+          last_login_at: { type: 'string', format: 'date-time', nullable: true },
+          last_seen_at: { type: 'string', format: 'date-time', nullable: true },
+          active_sessions: { type: 'integer' },
+          providers: {
+            type: 'array',
+            items: { type: 'string', enum: ['email', 'google', 'github', 'telegram'] },
+          },
+          open_issues: { type: 'integer' },
+        },
+      },
+    },
+  },
+};
+
+export const deactivateMemberSchema: FastifySchema = {
+  tags: ['Workspaces'],
+  summary: 'Turn a member’s access to the workspace off (admin+)',
+  description: `${accessDescription} \`signed_out\` — whether their sessions were ended (no workspace with access left).`,
+  security,
+  params: memberParams,
+  response: {
+    200: {
+      type: 'object',
+      properties: { member: memberShape, signed_out: { type: 'boolean' } },
+    },
+  },
+};
+
+export const activateMemberSchema: FastifySchema = {
+  tags: ['Workspaces'],
+  summary: 'Give a deactivated member their access back (admin+)',
+  description: accessDescription,
+  security,
+  params: memberParams,
+  response: { 200: memberShape },
+};
+
+export const resetMemberIdentitySchema: FastifySchema = {
+  tags: ['Workspaces'],
+  summary: 'Unlink a member’s Telegram, Google or GitHub (admin+)',
+  description:
+    'For a member who lost a phone or an account. The email cannot be unlinked, nor the last login method (403); ' +
+    '404 when that method is not linked. Written to the audit log.',
+  security,
+  params: {
+    type: 'object',
+    required: ['workspaceSlug', 'userId', 'provider'],
+    properties: {
+      workspaceSlug: { type: 'string' },
+      userId: { type: 'string', format: 'uuid' },
+      provider: { type: 'string', enum: ['google', 'github', 'telegram'] },
+    },
+  },
+  response: { 204: { type: 'null' } },
 };

@@ -83,6 +83,11 @@ function frontendSuccessUrl(accessToken: string): string {
   return url.toString();
 }
 
+/** Sign-in refused because an admin turned the person's access off (12.B7). */
+function isDeactivated(err: unknown): boolean {
+  return err instanceof AppError && err.code === 'MEMBER_DEACTIVATED';
+}
+
 /** Frontend URL to bounce the browser to when an OAuth flow fails. */
 function frontendErrorUrl(code: string): string {
   const url = new URL(config.FRONTEND_URL);
@@ -265,6 +270,10 @@ export async function googleCallbackHandler(
       avatar_url: profile.picture,
     });
   } catch (err) {
+    if (isDeactivated(err)) {
+      reply.redirect(frontendErrorUrl('MEMBER_DEACTIVATED'));
+      return;
+    }
     request.log.error({ err }, 'Google OAuth callback failed');
     reply.redirect(frontendErrorUrl('google_login_failed'));
     return;
@@ -312,6 +321,10 @@ export async function githubCallbackHandler(
       avatar_url: profile.avatar_url,
     });
   } catch (err) {
+    if (isDeactivated(err)) {
+      reply.redirect(frontendErrorUrl('MEMBER_DEACTIVATED'));
+      return;
+    }
     request.log.error({ err }, 'GitHub OAuth callback failed');
     reply.redirect(frontendErrorUrl('github_login_failed'));
     return;
@@ -435,7 +448,7 @@ export async function revokeSessionHandler(
     },
     request,
   );
-  request.server.realtime.disconnect(request.userId, [id]);
+  request.server.realtime.disconnect(request.userId, { sessionIds: [id] });
   // Ending the session you are using is signing out of it.
   if (id === request.sessionId) clearRefreshCookie(reply);
   reply.code(204).send();
@@ -458,7 +471,7 @@ export async function revokeOtherSessionsHandler(
       },
       request,
     );
-    request.server.realtime.disconnect(request.userId, ids);
+    request.server.realtime.disconnect(request.userId, { sessionIds: ids });
   }
   reply.send({ revoked: ids.length });
 }

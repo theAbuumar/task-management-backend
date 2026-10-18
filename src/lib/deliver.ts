@@ -78,14 +78,19 @@ export async function routeRecipients(
   prisma: PrismaClient,
   userIds: string[],
   type: NotificationType,
-  workspaceTimeZone: string,
+  workspace: { id: string; timezone: string },
   now: Date = new Date(),
 ): Promise<{
   telegram: { userId: string; chatId: number }[];
   email: { userId: string; email: string }[];
 }> {
   const users = await prisma.user.findMany({
-    where: { id: { in: userIds }, is_active: true },
+    where: {
+      id: { in: userIds },
+      is_active: true,
+      // Nothing leaves the app for a member whose access was turned off (12.B7).
+      workspace_memberships: { some: { workspace_id: workspace.id, deactivated_at: null } },
+    },
     select: {
       id: true,
       email: true,
@@ -110,7 +115,7 @@ export async function routeRecipients(
       hasTelegram: Boolean(chat),
       hasEmail: Boolean(u.email),
       now,
-      timeZone: u.timezone ?? workspaceTimeZone,
+      timeZone: u.timezone ?? workspace.timezone,
     });
     if (channel === 'telegram') out.telegram.push({ userId: u.id, chatId: Number(chat) });
     else if (channel === 'email') out.email.push({ userId: u.id, email: u.email! });
@@ -139,7 +144,7 @@ export async function deliverIssueEvent(
         title: true,
         sequence_id: true,
         project: { select: { identifier: true } },
-        workspace: { select: { slug: true, timezone: true } },
+        workspace: { select: { id: true, slug: true, timezone: true } },
       },
     });
     if (!issue) return;
@@ -169,7 +174,7 @@ export async function deliverIssueEvent(
     const link = issueUrl(issue.workspace.slug, key);
     const text = `${head}\n${issue.title}\n\n${link}`;
 
-    const routed = await routeRecipients(prisma, recipients, params.kind, issue.workspace.timezone);
+    const routed = await routeRecipients(prisma, recipients, params.kind, issue.workspace);
     // Buttons act right in the chat: accept/return a hand-in, hand in again, decide
     // a deadline change; «Подробнее» opens the issue card (bot inside the backend).
     const buttonKind =

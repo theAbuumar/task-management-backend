@@ -833,6 +833,25 @@ async function ensureEmailIdentity(
 }
 
 /**
+ * Someone whose access an admin turned off in every workspace they belong to cannot
+ * sign in (12.B7, ADR-026). A person with no workspace yet (new account) or with
+ * another workspace still open signs in as usual.
+ */
+async function assertHasAccess(prisma: PrismaClient, userId: string): Promise<void> {
+  const memberships = await prisma.workspaceMember.findMany({
+    where: { user_id: userId },
+    select: { deactivated_at: true },
+  });
+  if (memberships.length > 0 && memberships.every((m) => m.deactivated_at)) {
+    throw new AppError(
+      403,
+      'MEMBER_DEACTIVATED',
+      'Your access has been turned off by a workspace admin',
+    );
+  }
+}
+
+/**
  * Mint an access + refresh pair. Without `sessionId` this is a sign-in and opens a
  * new session (Ф12 12.B2; the controller records its device and method); with it,
  * a refresh rotation that keeps the session and moves its expiry forward.
@@ -842,6 +861,7 @@ async function issueTokenPair(
   user: User,
   sessionId?: string | null,
 ): Promise<AuthTokens> {
+  await assertHasAccess(prisma, user.id);
   const expires_at = ttlToDate(config.JWT_REFRESH_TTL);
   const session = sessionId
     ? await prisma.authSession.update({

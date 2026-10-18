@@ -180,15 +180,16 @@ export class RealtimeHub {
   }
 
   /**
-   * Close the user's streams opened with the given sessions — or all of them — when
-   * those sessions end (Ф12 12.B2) or the account is deactivated (12.B7). The client
-   * reconnects, and the auth hook turns it away.
+   * Close the user's streams — those of the given sessions when they end (Ф12 12.B2),
+   * or those in a workspace their access was turned off in (12.B7). The client
+   * reconnects, and the auth or membership check turns it away.
    */
-  disconnect(userId: string, sessionIds?: string[]): void {
-    for (const set of this.subscribers.values()) {
+  disconnect(userId: string, only: { sessionIds?: string[]; workspaceId?: string } = {}): void {
+    for (const [workspaceId, set] of this.subscribers) {
+      if (only.workspaceId && workspaceId !== only.workspaceId) continue;
       for (const s of set) {
         if (s.userId !== userId) continue;
-        if (sessionIds && (!s.sessionId || !sessionIds.includes(s.sessionId))) continue;
+        if (only.sessionIds && (!s.sessionId || !only.sessionIds.includes(s.sessionId))) continue;
         s.raw.end();
       }
     }

@@ -15,8 +15,9 @@ import type {
 } from './schema.js';
 
 export async function listWorkspaces(prisma: PrismaClient, userId: string): Promise<Workspace[]> {
+  // A workspace where an admin turned the user's access off is not theirs to open (12.B7).
   const memberships = await prisma.workspaceMember.findMany({
-    where: { user_id: userId },
+    where: { user_id: userId, deactivated_at: null },
     include: { workspace: true },
   });
   return memberships.map((m) => m.workspace);

@@ -1,5 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import * as workspaceService from './service.js';
+import * as accessService from './access.service.js';
+import { writeAudit } from '../../lib/audit.js';
 import * as memberInviteService from '../member-invites/service.js';
 import { InviteExistingUserBodySchema } from '../member-invites/schema.js';
 import {
@@ -9,6 +11,7 @@ import {
   ChangeMemberRoleBodySchema,
   ListMembersQuerySchema,
   InviteMemberBodySchema,
+  MemberIdentityParamsSchema,
 } from './schema.js';
 
 export async function listWorkspacesHandler(
@@ -158,4 +161,82 @@ export async function inviteExistingUserHandler(
     body,
   );
   reply.code(201).send(result);
+}
+
+// ─── Members' access (Ф12 12.B7) ──────────────────────────────────────────────
+// The hook resolved request.workspaceMember (admin+ is also checked in the service).
+
+export async function listMemberAccessHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  reply.send(
+    await accessService.listMemberAccess(
+      request.server.prisma,
+      request.workspace.id,
+      request.workspaceMember,
+    ),
+  );
+}
+
+export async function deactivateMemberHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const { userId } = request.params as { userId: string };
+  const { member, signedOut } = await accessService.deactivateMember(
+    request.server.prisma,
+    request.workspace.id,
+    request.workspaceMember,
+    userId,
+  );
+  // Live streams close now: of this workspace, or all of them when signed out.
+  request.server.realtime.disconnect(
+    userId,
+    signedOut ? {} : { workspaceId: request.workspace.id },
+  );
+  reply.send({ member, signed_out: signedOut });
+}
+
+export async function activateMemberHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const { userId } = request.params as { userId: string };
+  reply.send(
+    await accessService.activateMember(
+      request.server.prisma,
+      request.workspace.id,
+      request.workspaceMember,
+      userId,
+    ),
+  );
+}
+
+export async function resetMemberIdentityHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const { userId, provider } = MemberIdentityParamsSchema.parse(request.params);
+  const { prisma } = request.server;
+  await accessService.resetMemberIdentity(
+    prisma,
+    request.workspace.id,
+    request.workspaceMember,
+    userId,
+    provider,
+  );
+  await writeAudit(
+    prisma,
+    {
+      workspace_id: request.workspace.id,
+      actor_id: request.userId,
+      action: 'member.identity_reset',
+      target_type: 'user',
+      target_id: userId,
+      meta: { provider },
+    },
+    request,
+  );
+  reply.code(204).send();
 }

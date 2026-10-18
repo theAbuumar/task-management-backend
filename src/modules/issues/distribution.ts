@@ -40,6 +40,13 @@ export async function distributeIssue(
       where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: body.controller_id } },
     });
     if (!member) throw AppError.badRequest('controller_id must be a member of this workspace');
+    if (member.deactivated_at) {
+      throw new AppError(
+        400,
+        'MEMBER_DEACTIVATED',
+        "controller_id: this member's access to the workspace is turned off",
+      );
+    }
     if (member.role === 'guest') {
       throw new AppError(400, 'GUEST_NOT_ASSIGNABLE', 'controller_id: a guest cannot be assigned');
     }
@@ -62,11 +69,13 @@ export async function distributeIssue(
   if (departments.length !== departmentIds.length) {
     throw AppError.badRequest('department_ids must belong to this workspace');
   }
-  // The head must still be in the workspace (a removed member keeps head_id only until reassigned).
+  // The head must still be in the workspace with access (a removed or deactivated
+  // member keeps head_id only until reassigned — 12.B7).
   const heads = await prisma.workspaceMember.findMany({
     where: {
       workspace_id: workspaceId,
       user_id: { in: departments.flatMap((d) => (d.head_id ? [d.head_id] : [])) },
+      deactivated_at: null,
     },
     select: { user_id: true, role: true },
   });

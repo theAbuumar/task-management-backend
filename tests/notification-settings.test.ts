@@ -24,12 +24,15 @@ const emails = {
   tg: `nset-tg-${TS}@example.com`,
 };
 const TG_ID = TS + 7;
+const SLUG = `nset-${TS}`;
 
 type Actor = { id: string; token: string };
 let app: FastifyInstance;
 let web: Actor; // email only
 let tg: Actor; // Telegram linked
 let botCalls: { method: string; body: Record<string, unknown> }[] = [];
+// Delivery goes only to members with access to the task's workspace (12.B7).
+let workspace: { id: string; timezone: string };
 
 const settings = '/api/v1/auth/me/notification-settings';
 
@@ -57,6 +60,14 @@ beforeAll(async () => {
   await app.prisma.authIdentity.create({
     data: { user_id: tg.id, provider: 'telegram', provider_user_id: String(TG_ID) },
   });
+  const ws = await request(app.server)
+    .post('/api/v1/workspaces')
+    .set('Authorization', `Bearer ${web.token}`)
+    .send({ name: 'Уведомления', slug: SLUG });
+  workspace = { id: ws.body.id, timezone: 'UTC' };
+  await app.prisma.workspaceMember.create({
+    data: { workspace_id: workspace.id, user_id: tg.id, role: 'member' },
+  });
   const realFetch = globalThis.fetch;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input);
@@ -78,6 +89,7 @@ afterEach(() => {
 afterAll(async () => {
   vi.restoreAllMocks();
   const list = Object.values(emails);
+  await app.prisma.workspace.deleteMany({ where: { slug: SLUG } });
   await app.prisma.refreshToken.deleteMany({ where: { user: { email: { in: list } } } });
   await app.prisma.user.deleteMany({ where: { email: { in: list } } });
   await app.close();
@@ -182,7 +194,7 @@ describe('delivery follows the settings', () => {
     await as(tg).put(settings, { telegram: { deadlines: false } });
     const now = new Date('2026-10-18T10:00:00Z');
 
-    const due = await routeRecipients(app.prisma, [web.id, tg.id], 'due_soon', 'UTC', now);
+    const due = await routeRecipients(app.prisma, [web.id, tg.id], 'due_soon', workspace, now);
     expect(due.telegram).toEqual([]);
     expect(due.email.map((e) => e.userId).sort()).toEqual([web.id, tg.id].sort());
 
@@ -190,14 +202,14 @@ describe('delivery follows the settings', () => {
       app.prisma,
       [web.id, tg.id],
       'review_requested',
-      'UTC',
+      workspace,
       now,
     );
     expect(review.telegram).toEqual([{ userId: tg.id, chatId: TG_ID }]);
     expect(review.email.map((e) => e.userId)).toEqual([web.id]);
 
     await as(web).put(settings, { quiet_hours: { enabled: true, from: 9, to: 18 } });
-    const quiet = await routeRecipients(app.prisma, [web.id], 'review_requested', 'UTC', now);
+    const quiet = await routeRecipients(app.prisma, [web.id], 'review_requested', workspace, now);
     expect(quiet).toEqual({ telegram: [], email: [] });
   });
 });

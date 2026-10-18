@@ -147,28 +147,28 @@ enum MemberInviteStatus {
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model User {
-  id             String   @id @default(uuid())
+  id                    String   @id @default(uuid())
   // Nullable: Telegram-only accounts have no email (auth_tz.md §2). Still unique when present.
-  email          String?  @unique
-  email_verified Boolean  @default(false)
+  email                 String?  @unique
+  email_verified        Boolean  @default(false)
   // Nullable: accounts created via OAuth/Telegram have no password until they set one.
-  password_hash  String?
-  display_name   String
+  password_hash         String?
+  display_name          String
   // Full name, Russian order (Фамилия Имя Отчество). Optional for accounts created
   // before Ф3 / via providers; display_name stays the rendered name.
-  last_name      String?
-  first_name     String?
-  middle_name    String?
-  phone          String?
-  locale         String   @default("ru")
-  timezone       String?
-  avatar_url     String?
+  last_name             String?
+  first_name            String?
+  middle_name           String?
+  phone                 String?
+  locale                String   @default("ru")
+  timezone              String?
+  avatar_url            String?
   // Ф8 8.B2: which events go to Telegram / email and quiet hours; null = defaults
   // (src/lib/notification-prefs.ts). In-app notifications are always on.
   notification_settings Json?
-  is_active      Boolean  @default(true)
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
+  is_active             Boolean  @default(true)
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
 
   headed_departments        Department[]            @relation("DepartmentHead")
   controlled_issues         Issue[]                 @relation("IssueController")
@@ -382,14 +382,18 @@ model Workspace {
 }
 
 model WorkspaceMember {
-  workspace_id  String
-  user_id       String
-  role          WorkspaceRole @default(member)
+  workspace_id   String
+  user_id        String
+  role           WorkspaceRole @default(member)
   // Place in the org structure — independent of the access role (ADR-007).
-  department_id String?
-  position      String?
-  created_at    DateTime      @default(now())
-  updated_at    DateTime      @updatedAt
+  department_id  String?
+  position       String?
+  // Access to this workspace suspended by an admin (Ф12 12.B7, ADR-026); null = active.
+  // The account itself stays as is; `deactivated_by` is the admin's user id.
+  deactivated_at DateTime?
+  deactivated_by String?
+  created_at     DateTime      @default(now())
+  updated_at     DateTime      @updatedAt
 
   workspace  Workspace   @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
   user       User        @relation(fields: [user_id], references: [id], onDelete: Cascade)

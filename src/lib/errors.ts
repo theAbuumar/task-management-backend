@@ -49,7 +49,8 @@ export type ErrorCode =
   | 'CONTROL_CHANGE_FORBIDDEN'
   | 'INVALID_IMAGE'
   | 'GUEST_READ_ONLY'
-  | 'GUEST_NOT_ASSIGNABLE';
+  | 'GUEST_NOT_ASSIGNABLE'
+  | 'MEMBER_DEACTIVATED';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -103,6 +104,8 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
   GUEST_READ_ONLY:
     'A guest has read-only access to the workspace (they may still manage their own notifications, follow tasks and leave)',
   GUEST_NOT_ASSIGNABLE: 'A guest cannot be made an assignee or the controller of a task',
+  MEMBER_DEACTIVATED:
+    'An admin has turned off this person’s access to the workspace (403 on their own requests and sign-in; 400 when assigning them)',
 };
 
 /**
