@@ -163,6 +163,9 @@ model User {
   locale         String   @default("ru")
   timezone       String?
   avatar_url     String?
+  // Ф8 8.B2: which events go to Telegram / email and quiet hours; null = defaults
+  // (src/lib/notification-prefs.ts). In-app notifications are always on.
+  notification_settings Json?
   is_active      Boolean  @default(true)
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt

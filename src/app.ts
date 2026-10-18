@@ -44,6 +44,7 @@ import { inviteRoutes } from './modules/invites/routes.js';
 import { memberInviteRoutes } from './modules/member-invites/routes.js';
 import { departmentRoutes } from './modules/departments/routes.js';
 import { mediaRoutes } from './modules/media/routes.js';
+import { notificationSettingsRoutes } from './modules/auth/notification-settings.js';
 import { workspaceIssueRoutes } from './modules/issues/workspace-routes.js';
 import { controlRoutes } from './modules/control/routes.js';
 import { controlAdminRoutes } from './modules/control/admin-routes.js';
@@ -236,6 +237,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(memberInviteRoutes, { prefix: '/api/v1/invitations' });
   // Avatars & workspace logos (presigned upload + stable public link).
   await app.register(mediaRoutes);
+  // Personal notification settings: type × channel, quiet hours (8.B2).
+  await app.register(notificationSettingsRoutes);
 
   return app;
 }

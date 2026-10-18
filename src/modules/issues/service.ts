@@ -2,7 +2,7 @@ import type { PrismaClient, Issue, Prisma, StateGroup, WorkspaceMember } from '@
 import { AppError } from '../../lib/errors.js';
 import { recordActivity, recordActivities, ACTIVITY_ACTIONS } from '../../lib/activity.js';
 import { notify } from '../../lib/notifications.js';
-import { sendIssueNotification, telegramConfigured } from '../auth/telegram.service.js';
+import { sendIssueNotification } from '../auth/telegram.service.js';
 import { sendIssueNotificationEmail } from '../../lib/email.js';
 import type {
   CreateIssueBody,
@@ -12,7 +12,7 @@ import type {
 } from './schema.js';
 import { expandDepartments, inDepartmentsWhere, visibleIssuesWhere } from './scope.js';
 import { distributionProgress, type DistributionProgress } from './distribution-progress.js';
-import { deliverIssueEvent } from '../../lib/deliver.js';
+import { deliverIssueEvent, routeRecipients } from '../../lib/deliver.js';
 import { issueUrl } from '../../lib/urls.js';
 import { publish } from '../../lib/realtime.js';
 import { notificationButtons } from '../telegram/views.js';
@@ -946,9 +946,10 @@ async function issueCreatedRecipients(
 }
 
 /**
- * Best-effort out-of-band fan-out for a task event, one channel per recipient: a linked
- * Telegram account is messaged through the bot; everyone else falls back to email (when
- * they have an address). Must be called AFTER the mutation's transaction commits — never
+ * Best-effort out-of-band fan-out for a task event, one channel per recipient, chosen by
+ * their notification settings (8.B2): a linked Telegram account is messaged through the
+ * bot; otherwise email is the fallback (when they have an address); nothing during
+ * their quiet hours. Must be called AFTER the mutation's transaction commits — never
  * inside it — because it performs network I/O. The actor is never notified about their own
  * action, recipients are de-duplicated, and every individual send is isolated (allSettled),
  * so a delivery problem can never fail the request or roll back the mutation. This is
@@ -967,23 +968,16 @@ export async function notifyIssueRecipients(
   const recipients = [...new Set(params.recipientIds)].filter((id) => id !== params.actorId);
   if (recipients.length === 0) return;
 
-  const [project, actor, telegramIdentities] = await Promise.all([
+  const [project, actor] = await Promise.all([
     prisma.project.findUnique({
       where: { id: params.projectId },
-      select: { name: true, identifier: true, workspace: { select: { slug: true } } },
+      select: {
+        name: true,
+        identifier: true,
+        workspace: { select: { slug: true, timezone: true } },
+      },
     }),
     prisma.user.findUnique({ where: { id: params.actorId }, select: { display_name: true } }),
-    // Only resolve Telegram links when the bot is actually configured.
-    telegramConfigured()
-      ? prisma.authIdentity.findMany({
-          where: {
-            provider: 'telegram',
-            user_id: { in: recipients },
-            provider_user_id: { not: null },
-          },
-          select: { user_id: true, provider_user_id: true },
-        })
-      : Promise.resolve([] as { user_id: string; provider_user_id: string | null }[]),
   ]);
   if (!project || !actor) return;
 
@@ -999,8 +993,13 @@ export async function notifyIssueRecipients(
     kind: params.issue.kind,
   };
 
-  // Telegram for linked recipients.
-  const telegramUserIds = new Set(telegramIdentities.map((i) => i.user_id));
+  // Telegram or email per recipient, by their notification settings (8.B2).
+  const routed = await routeRecipients(
+    prisma,
+    recipients,
+    'issue_assigned',
+    project.workspace.timezone,
+  );
   // «Ознакомлен» and «Перенести срок» right under a new assignment; «Подробнее»
   // opens the card in the bot.
   const assignment = params.assigned && params.issue.kind === 'assignment';
@@ -1008,20 +1007,11 @@ export async function notifyIssueRecipients(
     acknowledge: assignment,
     deadline: assignment && Boolean(params.issue.due_date),
   });
-  const sends: Promise<unknown>[] = telegramIdentities.map((i) =>
-    sendIssueNotification(Number(i.provider_user_id), { ...opts, buttons }),
+  const sends: Promise<unknown>[] = routed.telegram.map((t) =>
+    sendIssueNotification(t.chatId, { ...opts, buttons }),
   );
-
-  // Email fallback for recipients WITHOUT a linked Telegram, when they have an address.
-  const emailFallbackIds = recipients.filter((id) => !telegramUserIds.has(id));
-  if (emailFallbackIds.length > 0) {
-    const emailTargets = await prisma.user.findMany({
-      where: { id: { in: emailFallbackIds }, email: { not: null } },
-      select: { email: true },
-    });
-    for (const u of emailTargets) {
-      sends.push(sendIssueNotificationEmail({ to: u.email!, ...opts }));
-    }
+  for (const u of routed.email) {
+    sends.push(sendIssueNotificationEmail({ to: u.email, ...opts }));
   }
 
   // allSettled so one failing channel/recipient can't stop the others (it never rejects).

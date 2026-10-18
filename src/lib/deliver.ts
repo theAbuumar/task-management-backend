@@ -1,10 +1,11 @@
 // Out-of-band delivery of execution-control events (Ф5): one channel per
-// recipient — Telegram when the account is linked (and the bot configured), else
-// email. Called AFTER the mutation commits; best-effort (never throws), like the
+// recipient, chosen by their notification settings (8.B2) — Telegram when linked
+// and wanted, else email as the fallback, nothing during quiet hours. Called AFTER the mutation commits; best-effort (never throws), like the
 // issue-created fan-out in issues/service. The in-app Notification rows are written
 // inside the transaction separately. Ф8 replaces this with the unified dispatcher.
 
-import type { PrismaClient } from '@prisma/client';
+import type { NotificationType, PrismaClient } from '@prisma/client';
+import { channelFor } from './notification-prefs.js';
 import { sendMail } from './mailer.js';
 import { issueUrl } from './urls.js';
 import { pluralize } from './plural.js';
@@ -69,6 +70,54 @@ function headline(
   }
 }
 
+/**
+ * Split recipients by out-of-band channel according to their notification settings
+ * (8.B2): Telegram chat ids and email addresses; the rest get the in-app copy only.
+ */
+export async function routeRecipients(
+  prisma: PrismaClient,
+  userIds: string[],
+  type: NotificationType,
+  workspaceTimeZone: string,
+  now: Date = new Date(),
+): Promise<{
+  telegram: { userId: string; chatId: number }[];
+  email: { userId: string; email: string }[];
+}> {
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds }, is_active: true },
+    select: {
+      id: true,
+      email: true,
+      timezone: true,
+      notification_settings: true,
+      identities: telegramConfigured()
+        ? {
+            where: { provider: 'telegram', provider_user_id: { not: null } },
+            select: { provider_user_id: true },
+            take: 1,
+          }
+        : false,
+    },
+  });
+  const out = {
+    telegram: [] as { userId: string; chatId: number }[],
+    email: [] as { userId: string; email: string }[],
+  };
+  for (const u of users) {
+    const chat = u.identities?.[0]?.provider_user_id;
+    const channel = channelFor(u.notification_settings, type, {
+      hasTelegram: Boolean(chat),
+      hasEmail: Boolean(u.email),
+      now,
+      timeZone: u.timezone ?? workspaceTimeZone,
+    });
+    if (channel === 'telegram') out.telegram.push({ userId: u.id, chatId: Number(chat) });
+    else if (channel === 'email') out.email.push({ userId: u.id, email: u.email! });
+  }
+  return out;
+}
+
 export async function deliverIssueEvent(
   prisma: PrismaClient,
   params: {
@@ -120,17 +169,7 @@ export async function deliverIssueEvent(
     const link = issueUrl(issue.workspace.slug, key);
     const text = `${head}\n${issue.title}\n\n${link}`;
 
-    const telegram = telegramConfigured()
-      ? await prisma.authIdentity.findMany({
-          where: {
-            provider: 'telegram',
-            user_id: { in: recipients },
-            provider_user_id: { not: null },
-          },
-          select: { user_id: true, provider_user_id: true },
-        })
-      : [];
-    const viaTelegram = new Set(telegram.map((t) => t.user_id));
+    const routed = await routeRecipients(prisma, recipients, params.kind, issue.workspace.timezone);
     // Buttons act right in the chat: accept/return a hand-in, hand in again, decide
     // a deadline change; «Подробнее» opens the issue card (bot inside the backend).
     const buttonKind =
@@ -140,19 +179,11 @@ export async function deliverIssueEvent(
         ? params.kind
         : 'other';
     const reply_markup = { inline_keyboard: notificationButtons(buttonKind, params.issueId, link) };
-    const sends: Promise<unknown>[] = telegram.map((t) =>
-      sendBotMessage(Number(t.provider_user_id), text, { reply_markup }),
+    const sends: Promise<unknown>[] = routed.telegram.map((t) =>
+      sendBotMessage(t.chatId, text, { reply_markup }),
     );
-
-    const emailIds = recipients.filter((id) => !viaTelegram.has(id));
-    if (emailIds.length > 0) {
-      const users = await prisma.user.findMany({
-        where: { id: { in: emailIds }, email: { not: null } },
-        select: { email: true },
-      });
-      const subject = `${head.split('\n')[0]!.replace(/^\S+\s/, '')}: ${issue.title}`;
-      for (const u of users) sends.push(sendMail({ to: u.email!, subject, text }));
-    }
+    const subject = `${head.split('\n')[0]!.replace(/^\S+\s/, '')}: ${issue.title}`;
+    for (const u of routed.email) sends.push(sendMail({ to: u.email, subject, text }));
     await Promise.allSettled(sends);
   } catch {
     // Delivery is best-effort; the event itself already committed.
