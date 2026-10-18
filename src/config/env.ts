@@ -28,6 +28,16 @@ export const envSchema = z
       .enum(['true', 'false'])
       .default('false')
       .transform((v) => v === 'true'),
+    /**
+     * Demo seed (13.B1): the presenter's Telegram user id, linked to one demo account
+     * so bot messages and buttons reach the phone on stage. Unset — no link.
+     */
+    DEMO_TELEGRAM_ID: z
+      .string()
+      .regex(/^\d{3,15}$/, 'must be a numeric Telegram user id')
+      .optional(),
+    /** Which demo account gets that Telegram: rector | prorector | dean | employee. */
+    DEMO_TELEGRAM_ROLE: z.enum(['rector', 'prorector', 'dean', 'employee']).default('dean'),
     /** Run background jobs (deadline reminders) in this process. Off under test by default. */
     JOBS_ENABLED: z
       .enum(['true', 'false'])

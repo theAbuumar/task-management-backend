@@ -306,7 +306,8 @@ function pdfPrinter(): PdfPrinter {
   return printer;
 }
 
-function render(doc: TDocumentDefinitions): Promise<Buffer> {
+/** Render a pdfmake document (Roboto, Cyrillic) to bytes. Also used by the demo seed. */
+export function renderPdf(doc: TDocumentDefinitions): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const pdf = pdfPrinter().createPdfKitDocument(doc);
     const chunks: Buffer[] = [];
@@ -579,7 +580,7 @@ export function disciplinePdf(
   d: AnalyticsData,
   query: { department?: string | string[]; project?: string | string[]; kind?: string },
 ): Promise<Buffer> {
-  return render(
+  return renderPdf(
     documentShell(
       d,
       'СПРАВКА',
@@ -607,7 +608,7 @@ export function projectPdf(
   d: AnalyticsData,
   project: { name: string; identifier: string },
 ): Promise<Buffer> {
-  return render(
+  return renderPdf(
     documentShell(
       d,
       'ОТЧЁТ ПО ПРОЕКТУ',
