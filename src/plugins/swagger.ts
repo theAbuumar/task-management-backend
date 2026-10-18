@@ -21,6 +21,11 @@ async function swaggerPlugin(app: FastifyInstance): Promise<void> {
       servers: [{ url: '/api/v1', description: 'API v1 base path' }],
       tags: [
         {
+          name: 'Health',
+          description:
+            'Probes outside `/api/v1`: `GET /health` (liveness) and `GET /ready` (readiness). Every response of the API carries `X-Request-Id`; a 500 repeats it in `error.details.requestId`, and every log line of the request has it as `reqId`.',
+        },
+        {
           name: 'Invitations',
           description:
             'Personal inbox for workspace invitations that target already-registered users. Not workspace-scoped: the recipient is not yet a member. Admins create these via `POST /workspaces/{slug}/members/invite-user` (tagged Workspaces); delivery fans out to email and Telegram.',

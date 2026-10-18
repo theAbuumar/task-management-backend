@@ -195,6 +195,24 @@ export class RealtimeHub {
     }
   }
 
+  /**
+   * Listener state for `/ready` (12.B9): `idle` until the first stream opens (the
+   * LISTEN connection starts lazily), `reconnecting` after it dropped.
+   */
+  get status(): {
+    listener: 'idle' | 'connecting' | 'listening' | 'reconnecting';
+    streams: number;
+  } {
+    const listener = this.client
+      ? 'listening'
+      : this.reconnectTimer
+        ? 'reconnecting'
+        : this.listening
+          ? 'connecting'
+          : 'idle';
+    return { listener, streams: this.size };
+  }
+
   /** Number of open streams (tests, diagnostics). */
   get size(): number {
     let n = 0;

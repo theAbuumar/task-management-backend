@@ -53,6 +53,8 @@ import { analyticsRoutes } from './modules/analytics/routes.js';
 import { invalidateAnalytics } from './modules/analytics/data.js';
 import { eventRoutes } from './modules/events/routes.js';
 import { auditRoutes } from './modules/audit/routes.js';
+import { healthRoutes } from './modules/health/routes.js';
+import { REQUEST_ID_HEADER, requestId } from './lib/request-id.js';
 
 export interface BuildAppOptions {
   /** Pino logger options, or `false`/`true` to disable/enable the default logger. */
@@ -62,8 +64,8 @@ export interface BuildAppOptions {
 /**
  * Sensible default logger config derived from validated config. Pretty-prints in
  * development (via pino-pretty, a dev dependency) and emits structured JSON
- * everywhere else. Request IDs are enabled by Fastify out of the box (`reqId` on
- * every log line).
+ * everywhere else. Every log line of a request carries its id (`reqId`, see
+ * lib/request-id.ts).
  */
 function defaultLogger(): LoggerOptions | boolean {
   const level = config.LOG_LEVEL ?? (isDev ? 'debug' : 'info');
@@ -91,6 +93,14 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     trustProxy: true,
     // Reject unknown content types early rather than silently.
     disableRequestLogging: false,
+    // A UUID per request, or a well-formed X-Request-Id from the proxy (12.B9).
+    genReqId: requestId,
+  });
+
+  // The id goes back on every response, errors and 404s included, so a user can
+  // quote it and the matching log lines are found at once.
+  app.addHook('onRequest', async (request, reply) => {
+    reply.header(REQUEST_ID_HEADER, request.id);
   });
 
   // --- Plugins ---------------------------------------------------------------
@@ -113,6 +123,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(cors, {
     origin: config.CORS_ORIGIN === '*' ? true : config.CORS_ORIGIN.split(',').map((o) => o.trim()),
     credentials: true,
+    exposedHeaders: ['X-Request-Id'],
   });
   // Security headers. The CSP allows the inline script/style Swagger UI needs at
   // `/docs`; the API itself only returns JSON. CORP is `cross-origin` so files and
@@ -160,18 +171,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   });
 
   // --- Routes ----------------------------------------------------------------
-  // Liveness/readiness probe. Liveness always returns ok if the process is up;
-  // readiness additionally pings the database so orchestrators don't route
-  // traffic to an instance that can't reach its DB.
-  app.get('/health', async (_request, reply) => {
-    try {
-      await app.prisma.$queryRaw`SELECT 1`;
-      return { status: 'ok', uptime: process.uptime(), db: 'up' };
-    } catch (err) {
-      app.log.error({ err }, 'health check: database unreachable');
-      return reply.status(503).send({ status: 'degraded', uptime: process.uptime(), db: 'down' });
-    }
-  });
+  // `/health` — liveness, `/ready` — readiness: database and file storage (12.B9).
+  await app.register(healthRoutes);
 
   // Feature modules under /api/v1
   await app.register(authRoutes, { prefix: '/api/v1/auth' });

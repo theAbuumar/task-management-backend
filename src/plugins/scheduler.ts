@@ -16,7 +16,46 @@ const FIRST_RUN_DELAY_MS = 30 * 1000;
 /** Arbitrary app-wide key for pg_try_advisory_lock. */
 const LOCK_KEY = 420_017;
 
+/** What `/ready` reports about the reminder passes (12.B9). */
+export interface SchedulerState {
+  enabled: boolean;
+  startedAt: Date;
+  lastRunAt: Date | null;
+  lastErrorAt: Date | null;
+}
+
+export type SchedulerHealth = 'off' | 'starting' | 'ok' | 'stale' | 'failing';
+
+/**
+ * `off` — disabled (JOBS_ENABLED=false, tests); `starting` — the first pass is not
+ * due yet; `failing` — the latest pass threw; `stale` — no pass for two intervals
+ * (the process is stuck or the lock is held elsewhere for too long); else `ok`.
+ */
+export function schedulerHealth(state: SchedulerState, now = new Date()): SchedulerHealth {
+  if (!state.enabled) return 'off';
+  if (state.lastErrorAt && (!state.lastRunAt || state.lastErrorAt > state.lastRunAt)) {
+    return 'failing';
+  }
+  const since = (state.lastRunAt ?? state.startedAt).getTime();
+  const allowed = 2 * INTERVAL_MS + (state.lastRunAt ? 0 : FIRST_RUN_DELAY_MS);
+  if (now.getTime() - since > allowed) return 'stale';
+  return state.lastRunAt ? 'ok' : 'starting';
+}
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    scheduler: SchedulerState;
+  }
+}
+
 async function schedulerPlugin(app: FastifyInstance): Promise<void> {
+  const state: SchedulerState = {
+    enabled: config.JOBS_ENABLED,
+    startedAt: new Date(),
+    lastRunAt: null,
+    lastErrorAt: null,
+  };
+  app.decorate('scheduler', state);
   if (!config.JOBS_ENABLED) return;
 
   let running = false;
@@ -37,7 +76,11 @@ async function schedulerPlugin(app: FastifyInstance): Promise<void> {
         },
         { maxWait: 10_000, timeout: 10 * 60 * 1000 },
       );
+      // A pass skipped because another instance holds the lock still counts: this
+      // process is alive and the reminders are being sent.
+      state.lastRunAt = new Date();
     } catch (err) {
+      state.lastErrorAt = new Date();
       app.log.error({ err }, 'reminder pass failed');
     } finally {
       running = false;
