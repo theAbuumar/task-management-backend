@@ -33,7 +33,12 @@ interface Ctx {
 
 async function loadIssue(prisma: PrismaClient, ctx: Ctx) {
   const issue = await prisma.issue.findFirst({
-    where: { id: ctx.issueId, project_id: ctx.projectId, workspace_id: ctx.workspaceId, deleted_at: null },
+    where: {
+      id: ctx.issueId,
+      project_id: ctx.projectId,
+      workspace_id: ctx.workspaceId,
+      deleted_at: null,
+    },
     include: {
       assignees: { select: { user_id: true, acknowledged_at: true } },
       state: { select: { group: true } },
@@ -165,7 +170,9 @@ export async function decideReview(
       issue_id: issue.id,
       actor_id: ctx.actorId,
       action:
-        decision === 'approved' ? ACTIVITY_ACTIONS.REVIEW_APPROVED : ACTIVITY_ACTIONS.REVIEW_RETURNED,
+        decision === 'approved'
+          ? ACTIVITY_ACTIONS.REVIEW_APPROVED
+          : ACTIVITY_ACTIONS.REVIEW_RETURNED,
       new_value: comment,
     });
   });
@@ -232,7 +239,11 @@ export async function acknowledge(prisma: PrismaClient, ctx: Ctx) {
 
 // ─── Deadline-change requests ─────────────────────────────────────────────────
 
-export async function requestDeadlineChange(prisma: PrismaClient, ctx: Ctx, body: DeadlineRequestBody) {
+export async function requestDeadlineChange(
+  prisma: PrismaClient,
+  ctx: Ctx,
+  body: DeadlineRequestBody,
+) {
   const issue = await loadIssue(prisma, ctx);
   assertAssignee(issue, ctx.actorId);
   const pending = await prisma.deadlineChangeRequest.findFirst({
@@ -240,7 +251,11 @@ export async function requestDeadlineChange(prisma: PrismaClient, ctx: Ctx, body
     select: { id: true },
   });
   if (pending) {
-    throw new AppError(409, 'DEADLINE_REQUEST_PENDING', 'A deadline change request is already pending');
+    throw new AppError(
+      409,
+      'DEADLINE_REQUEST_PENDING',
+      'A deadline change request is already pending',
+    );
   }
   const newDue = new Date(body.new_due_date);
 
@@ -301,7 +316,8 @@ export async function decideDeadlineChange(
     where: { id: requestId, issue_id: issue.id },
   });
   if (!request) throw AppError.notFound('Deadline change request not found');
-  if (request.status !== 'pending') throw AppError.conflict('This request has already been decided');
+  if (request.status !== 'pending')
+    throw AppError.conflict('This request has already been decided');
   const comment = body.comment?.trim() || null;
 
   const decided = await prisma.$transaction(async (tx) => {

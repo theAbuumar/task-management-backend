@@ -693,8 +693,7 @@ export async function updateMe(
   const first = body.first_name !== undefined ? body.first_name : user.first_name;
   const middle = body.middle_name !== undefined ? body.middle_name : user.middle_name;
   const rebuilt = [last, first, middle].filter((p) => p && p.trim()).join(' ');
-  const displayName =
-    body.display_name ?? (nameTouched && rebuilt ? rebuilt : undefined);
+  const displayName = body.display_name ?? (nameTouched && rebuilt ? rebuilt : undefined);
 
   const updated = await prisma.user.update({
     where: { id: userId },

@@ -30,7 +30,11 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.get('/', { schema: listProjectsSchema, preHandler: member }, listProjectsHandler);
   app.post(
     '/',
-    { schema: createProjectSchema, preHandler: admin, config: { audit: { action: 'project.created', target: 'project' } } },
+    {
+      schema: createProjectSchema,
+      preHandler: admin,
+      config: { audit: { action: 'project.created', target: 'project' } },
+    },
     createProjectHandler,
   );
 

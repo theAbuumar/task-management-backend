@@ -205,7 +205,8 @@ export async function respondToInviteViaTelegram(
       : `Вы вступили в «${invite.workspace.name}».`;
   } catch (err) {
     if (err instanceof AppError && err.code === 'GONE') return 'Срок приглашения истёк.';
-    if (err instanceof AppError && err.code === 'CONFLICT') return 'На это приглашение уже ответили.';
+    if (err instanceof AppError && err.code === 'CONFLICT')
+      return 'На это приглашение уже ответили.';
     return 'Не удалось обработать приглашение.';
   }
 }

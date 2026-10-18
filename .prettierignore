@@ -9,5 +9,9 @@ package-lock.json
 .claude/
 CLAUDE.md
 ROADMAP.md
+CHANGELOG.md
+auth_tz.md
+AUTH-ROADMAP.md
+FRONTEND-TASKS.md
 TZ-task-management-backend.md
 handoff.md

@@ -32,7 +32,13 @@ export async function controlAdminRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     '/settings',
     {
-      schema: { tags, summary: 'Effective execution-control settings', security, params: wsParams, response: { 200: settingsShape } },
+      schema: {
+        tags,
+        summary: 'Effective execution-control settings',
+        security,
+        params: wsParams,
+        response: { 200: settingsShape },
+      },
       preHandler: member,
     },
     async (request) => controlSettings(request.workspace.settings),
@@ -56,7 +62,8 @@ export async function controlAdminRoutes(app: FastifyInstance): Promise<void> {
       const patch = ControlSettingsPatchSchema.parse(request.body ?? {});
       const current = (request.workspace.settings ?? {}) as Record<string, unknown>;
       const merged = { ...controlSettings(current), ...patch };
-      if (patch.reminder_days) merged.reminder_days = [...new Set(patch.reminder_days)].sort((a, b) => b - a);
+      if (patch.reminder_days)
+        merged.reminder_days = [...new Set(patch.reminder_days)].sort((a, b) => b - a);
       const updated = await app.prisma.workspace.update({
         where: { id: request.workspace.id },
         data: { settings: { ...current, control: merged } as Prisma.InputJsonValue },

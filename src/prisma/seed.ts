@@ -20,7 +20,6 @@ const DEMO_PASSWORD = 'demo-password-123';
 // Default workflow states — the same set every real project gets on creation
 // (Russian names + the "На проверке" review step).
 
-
 /** A day offset from now, as a Date (negative = past). */
 function daysFromNow(days: number): Date {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000);

@@ -67,7 +67,13 @@ export async function controlRoutes(app: FastifyInstance): Promise<void> {
     { schema: decideDeadlineRequestSchema, preHandler: member },
     async (req) => {
       const { requestId } = req.params as { requestId: string };
-      return control.decideDeadlineChange(prisma, ctx(req), requestId, true, DecideBodySchema.parse(req.body ?? {}));
+      return control.decideDeadlineChange(
+        prisma,
+        ctx(req),
+        requestId,
+        true,
+        DecideBodySchema.parse(req.body ?? {}),
+      );
     },
   );
   app.post(
@@ -75,7 +81,13 @@ export async function controlRoutes(app: FastifyInstance): Promise<void> {
     { schema: decideDeadlineRequestSchema, preHandler: member },
     async (req) => {
       const { requestId } = req.params as { requestId: string };
-      return control.decideDeadlineChange(prisma, ctx(req), requestId, false, DecideBodySchema.parse(req.body ?? {}));
+      return control.decideDeadlineChange(
+        prisma,
+        ctx(req),
+        requestId,
+        false,
+        DecideBodySchema.parse(req.body ?? {}),
+      );
     },
   );
 

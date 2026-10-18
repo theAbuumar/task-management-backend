@@ -76,12 +76,22 @@ beforeAll(async () => {
   dean = await register(emails.dean);
   head = await register(emails.head);
 
-  await as(rector).post('/api/v1/workspaces', { name: 'Контроль', slug: SLUG, timezone: 'Asia/Dushanbe' });
+  await as(rector).post('/api/v1/workspaces', {
+    name: 'Контроль',
+    slug: SLUG,
+    timezone: 'Asia/Dushanbe',
+  });
   for (const m of [dean, head]) {
     await as(rector).post(api('/members'), { user_id: m.id, role: 'member' });
   }
-  const dept = await as(rector).post(api('/departments'), { name: 'Экономический факультет', head_id: head.id });
-  await as(rector).patch(api(`/members/${dean.id}`), { department_id: dept.body.id, position: 'Декан' });
+  const dept = await as(rector).post(api('/departments'), {
+    name: 'Экономический факультет',
+    head_id: head.id,
+  });
+  await as(rector).patch(api(`/members/${dean.id}`), {
+    department_id: dept.body.id,
+    position: 'Декан',
+  });
 
   const project = await as(rector).post(api('/projects'), {
     name: 'Аккредитация',
@@ -109,7 +119,9 @@ describe('acknowledgement and guards', () => {
   });
 
   it('only an assignee can acknowledge; the controller is notified', async () => {
-    expect((await as(head).post(issueApi(issue.id, '/acknowledge'))).body.error.code).toBe('NOT_ASSIGNEE');
+    expect((await as(head).post(issueApi(issue.id, '/acknowledge'))).body.error.code).toBe(
+      'NOT_ASSIGNEE',
+    );
     const before = await notificationsOf(rector.id, 'acknowledged');
     const res = await as(dean).post(issueApi(issue.id, '/acknowledge'));
     expect(res.status).toBe(200);
@@ -144,10 +156,15 @@ describe('deadline-change requests', () => {
     });
     expect(again.body.error.code).toBe('DEADLINE_REQUEST_PENDING');
 
-    expect((await as(head).post(issueApi(issue.id, `/deadline-requests/${req.body.id}/approve`))).status).toBe(403);
-    const approved = await as(rector).post(issueApi(issue.id, `/deadline-requests/${req.body.id}/approve`), {
-      comment: 'Согласовано',
-    });
+    expect(
+      (await as(head).post(issueApi(issue.id, `/deadline-requests/${req.body.id}/approve`))).status,
+    ).toBe(403);
+    const approved = await as(rector).post(
+      issueApi(issue.id, `/deadline-requests/${req.body.id}/approve`),
+      {
+        comment: 'Согласовано',
+      },
+    );
     expect(approved.status).toBe(200);
     expect(approved.body.status).toBe('approved');
 
@@ -167,7 +184,9 @@ describe('review cycle', () => {
 
   it('hand-in → "На проверке", controller notified, no double hand-in', async () => {
     const before = await notificationsOf(rector.id, 'review_requested');
-    const res = await as(dean).post(issueApi(issue.id, '/review/submit'), { report: 'Отчёт готов, см. вложение' });
+    const res = await as(dean).post(issueApi(issue.id, '/review/submit'), {
+      report: 'Отчёт готов, см. вложение',
+    });
     expect(res.status).toBe(200);
     expect(res.body.state.group).toBe('review');
     expect(await notificationsOf(rector.id, 'review_requested')).toBe(before + 1);
@@ -178,13 +197,19 @@ describe('review cycle', () => {
 
   it('return needs a comment; it lands in the discussion and the assignee is notified', async () => {
     expect((await as(rector).post(issueApi(issue.id, '/review/return'), {})).status).toBe(400);
-    expect((await as(dean).post(issueApi(issue.id, '/review/return'), { comment: 'x' })).body.error.code).toBe('NOT_REVIEWER');
+    expect(
+      (await as(dean).post(issueApi(issue.id, '/review/return'), { comment: 'x' })).body.error.code,
+    ).toBe('NOT_REVIEWER');
 
-    const res = await as(rector).post(issueApi(issue.id, '/review/return'), { comment: 'Добавьте таблицу по кафедрам' });
+    const res = await as(rector).post(issueApi(issue.id, '/review/return'), {
+      comment: 'Добавьте таблицу по кафедрам',
+    });
     expect(res.status).toBe(200);
     expect(res.body.state.group).toBe('started');
     const comments = await as(rector).get(issueApi(issue.id, '/comments'));
-    expect(comments.body.some((c: { body: string }) => c.body.includes('Добавьте таблицу'))).toBe(true);
+    expect(comments.body.some((c: { body: string }) => c.body.includes('Добавьте таблицу'))).toBe(
+      true,
+    );
     expect(await notificationsOf(dean.id, 'review_returned')).toBeGreaterThan(0);
   });
 
@@ -233,9 +258,13 @@ describe('watchers and control filters', () => {
     expect(within.body.data.map((i: { id: string }) => i.id)).toContain(soon.id);
 
     const unack = await as(dean).get(api(`/projects/${projectId}/issues?acknowledged=false`));
-    expect(unack.body.data.map((i: { id: string }) => i.id)).toEqual(expect.arrayContaining([overdue.id, soon.id]));
+    expect(unack.body.data.map((i: { id: string }) => i.id)).toEqual(
+      expect.arrayContaining([overdue.id, soon.id]),
+    );
 
-    const controlled = await as(rector).get(api(`/projects/${projectId}/issues?controller=me&open=true`));
+    const controlled = await as(rector).get(
+      api(`/projects/${projectId}/issues?controller=me&open=true`),
+    );
     expect(controlled.body.data.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -245,7 +274,9 @@ describe('watchers and control filters', () => {
     expect(single.status).toBe(200);
     expect(single.body.data.map((i: { id: string }) => i.id)).toContain(issue.id);
 
-    const repeated = await as(rector).get(api(`/projects/${projectId}/issues?priority=high&priority=urgent`));
+    const repeated = await as(rector).get(
+      api(`/projects/${projectId}/issues?priority=high&priority=urgent`),
+    );
     expect(repeated.status).toBe(200);
     expect(repeated.body.data.map((i: { id: string }) => i.id)).toContain(issue.id);
 
@@ -253,7 +284,9 @@ describe('watchers and control filters', () => {
     expect(byAssignee.status).toBe(200);
     expect(byAssignee.body.data.map((i: { id: string }) => i.id)).toContain(issue.id);
 
-    const byState = await as(rector).get(api(`/projects/${projectId}/issues?state=${states.unstarted}`));
+    const byState = await as(rector).get(
+      api(`/projects/${projectId}/issues?state=${states.unstarted}`),
+    );
     expect(byState.status).toBe(200);
     expect(byState.body.data.map((i: { id: string }) => i.id)).toContain(issue.id);
   });
@@ -270,10 +303,16 @@ describe('deadline reminders and escalation', () => {
     expect(first.sent.overdue).toBeGreaterThan(0);
     expect(first.sent.escalated).toBeGreaterThan(0);
 
-    const logs = await app.prisma.reminderLog.findMany({ where: { issue_id: { in: [soon.id, late.id] } } });
-    expect(logs.some((l) => l.issue_id === soon.id && l.kind === 'due_soon:1' && l.user_id === dean.id)).toBe(true);
+    const logs = await app.prisma.reminderLog.findMany({
+      where: { issue_id: { in: [soon.id, late.id] } },
+    });
+    expect(
+      logs.some((l) => l.issue_id === soon.id && l.kind === 'due_soon:1' && l.user_id === dean.id),
+    ).toBe(true);
     // Escalation reaches the head of the assignee's department and the controller.
-    const esc = logs.filter((l) => l.issue_id === late.id && l.kind === 'escalated').map((l) => l.user_id);
+    const esc = logs
+      .filter((l) => l.issue_id === late.id && l.kind === 'escalated')
+      .map((l) => l.user_id);
     expect(esc).toEqual(expect.arrayContaining([head.id, rector.id]));
 
     const second = await runReminders(app.prisma, { workspaceId: workspace.id, force: true });
@@ -291,10 +330,20 @@ describe('deadline reminders and escalation', () => {
 describe('control settings', () => {
   it('defaults, update, and mandatory report', async () => {
     const defaults = await as(dean).get(api('/control/settings'));
-    expect(defaults.body).toEqual({ reminder_days: [3, 1, 0], reminder_hour: 9, escalation_days: 3, require_report: false });
+    expect(defaults.body).toEqual({
+      reminder_days: [3, 1, 0],
+      reminder_hour: 9,
+      escalation_days: 3,
+      require_report: false,
+    });
 
-    expect((await as(dean).patch(api('/control/settings'), { require_report: true })).status).toBe(403);
-    const updated = await as(rector).patch(api('/control/settings'), { require_report: true, escalation_days: 5 });
+    expect((await as(dean).patch(api('/control/settings'), { require_report: true })).status).toBe(
+      403,
+    );
+    const updated = await as(rector).patch(api('/control/settings'), {
+      require_report: true,
+      escalation_days: 5,
+    });
     expect(updated.body.require_report).toBe(true);
     expect(updated.body.escalation_days).toBe(5);
 

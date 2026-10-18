@@ -107,18 +107,47 @@ interface Dept {
 const DEPARTMENTS: Dept[] = [
   { key: 'rector', name: 'Ректорат', reliability: 0.9 },
   { key: 'edu', name: 'Проректорат по учебной работе', parent: 'rector', reliability: 0.85 },
-  { key: 'umu', name: 'Учебно-методическое управление', short: 'УМУ', parent: 'edu', reliability: 0.85 },
-  { key: 'econ', name: 'Факультет экономики и управления', short: 'ФЭУ', parent: 'edu', reliability: 0.72 },
+  {
+    key: 'umu',
+    name: 'Учебно-методическое управление',
+    short: 'УМУ',
+    parent: 'edu',
+    reliability: 0.85,
+  },
+  {
+    key: 'econ',
+    name: 'Факультет экономики и управления',
+    short: 'ФЭУ',
+    parent: 'edu',
+    reliability: 0.72,
+  },
   { key: 'fin', name: 'Кафедра финансов и кредита', parent: 'econ', reliability: 0.7 },
   { key: 'mgmt', name: 'Кафедра менеджмента', parent: 'econ', reliability: 0.74 },
-  { key: 'itf', name: 'Факультет информационных технологий', short: 'ФИТ', parent: 'edu', reliability: 0.82 },
+  {
+    key: 'itf',
+    name: 'Факультет информационных технологий',
+    short: 'ФИТ',
+    parent: 'edu',
+    reliability: 0.82,
+  },
   { key: 'se', name: 'Кафедра программной инженерии', parent: 'itf', reliability: 0.85 },
   { key: 'math', name: 'Кафедра прикладной математики', parent: 'itf', reliability: 0.8 },
   { key: 'phil', name: 'Филологический факультет', short: 'ФФ', parent: 'edu', reliability: 0.55 },
   { key: 'sci', name: 'Проректорат по научной работе', parent: 'rector', reliability: 0.75 },
   { key: 'grad', name: 'Отдел аспирантуры и докторантуры', parent: 'sci', reliability: 0.65 },
-  { key: 'vosp', name: 'Проректорат по воспитательной работе', parent: 'rector', reliability: 0.78 },
-  { key: 'ahch', name: 'Административно-хозяйственная часть', short: 'АХЧ', parent: 'rector', reliability: 0.6 },
+  {
+    key: 'vosp',
+    name: 'Проректорат по воспитательной работе',
+    parent: 'rector',
+    reliability: 0.78,
+  },
+  {
+    key: 'ahch',
+    name: 'Административно-хозяйственная часть',
+    short: 'АХЧ',
+    parent: 'rector',
+    reliability: 0.6,
+  },
   { key: 'hr', name: 'Отдел кадров', parent: 'rector', reliability: 0.8 },
   { key: 'acc', name: 'Бухгалтерия', parent: 'rector', reliability: 0.7 },
   { key: 'it', name: 'IT-центр', parent: 'rector', reliability: 0.92 },
@@ -140,27 +169,218 @@ export interface Person {
 }
 
 const PEOPLE: Person[] = [
-  { key: 'rector', last: 'Рахимов', first: 'Фарход', middle: 'Саидович', position: 'Ректор', dept: 'rector', role: 'owner', demo: 'Ректор', heads: true },
-  { key: 'pr_edu', last: 'Каримова', first: 'Нилуфар', middle: 'Ахмедовна', position: 'Проректор по учебной работе', dept: 'edu', role: 'admin', demo: 'Проректор', heads: true },
-  { key: 'pr_sci', last: 'Назаров', first: 'Бахтиёр', middle: 'Умарович', position: 'Проректор по научной работе', dept: 'sci', role: 'admin', heads: true },
-  { key: 'pr_vosp', last: 'Юсупова', first: 'Мадина', middle: 'Рустамовна', position: 'Проректор по воспитательной работе', dept: 'vosp', role: 'admin', heads: true },
-  { key: 'umu', last: 'Кодиров', first: 'Азиз', middle: 'Бахромович', position: 'Начальник УМУ', dept: 'umu', role: 'member', heads: true },
-  { key: 'dean_econ', last: 'Абдуллоев', first: 'Шерзод', middle: 'Камолович', position: 'Декан ФЭУ', dept: 'econ', role: 'member', demo: 'Декан', heads: true },
-  { key: 'dean_it', last: 'Сафарова', first: 'Гулнора', middle: 'Исмоиловна', position: 'Декан ФИТ', dept: 'itf', role: 'member', heads: true },
-  { key: 'dean_phil', last: 'Олимов', first: 'Даврон', middle: 'Рашидович', position: 'Декан филологического факультета', dept: 'phil', role: 'member', heads: true },
-  { key: 'fin', last: 'Хасанов', first: 'Илхом', middle: 'Шарифович', position: 'Заведующий кафедрой финансов и кредита', dept: 'fin', role: 'member', heads: true },
-  { key: 'mgmt', last: 'Мирзоева', first: 'Зарина', middle: 'Алиевна', position: 'Заведующая кафедрой менеджмента', dept: 'mgmt', role: 'member', heads: true },
-  { key: 'se', last: 'Петров', first: 'Алексей', middle: 'Викторович', position: 'Заведующий кафедрой программной инженерии', dept: 'se', role: 'member', heads: true },
-  { key: 'math', last: 'Иванова', first: 'Елена', middle: 'Сергеевна', position: 'Заведующая кафедрой прикладной математики', dept: 'math', role: 'member', heads: true },
-  { key: 'grad', last: 'Захарова', first: 'Анна', middle: 'Павловна', position: 'Начальник отдела аспирантуры', dept: 'grad', role: 'member', heads: true },
-  { key: 'ahch', last: 'Бобоев', first: 'Джамшед', middle: 'Насруллоевич', position: 'Проректор по АХЧ', dept: 'ahch', role: 'member', heads: true },
-  { key: 'hr', last: 'Турсунова', first: 'Малика', middle: 'Фарруховна', position: 'Начальник отдела кадров', dept: 'hr', role: 'member', heads: true },
-  { key: 'acc', last: 'Сидорова', first: 'Ольга', middle: 'Николаевна', position: 'Главный бухгалтер', dept: 'acc', role: 'member', heads: true },
-  { key: 'it', last: 'Ли', first: 'Дмитрий', middle: 'Владимирович', position: 'Директор IT-центра', dept: 'it', role: 'admin', heads: true },
-  { key: 'umu_spec', last: 'Носирова', first: 'Дилноза', middle: 'Хайдаровна', position: 'Методист УМУ', dept: 'umu', role: 'member', demo: 'Сотрудник' },
-  { key: 'it_spec', last: 'Гафуров', first: 'Сухроб', middle: 'Давлатович', position: 'Системный администратор', dept: 'it', role: 'member' },
-  { key: 'econ_spec', last: 'Шарипова', first: 'Мехрона', middle: 'Шодиевна', position: 'Старший преподаватель', dept: 'fin', role: 'member', invited: 86 },
-  { key: 'phil_spec', last: 'Раджабов', first: 'Фирдавс', middle: 'Олимович', position: 'Доцент', dept: 'phil', role: 'member', invited: 84 },
+  {
+    key: 'rector',
+    last: 'Рахимов',
+    first: 'Фарход',
+    middle: 'Саидович',
+    position: 'Ректор',
+    dept: 'rector',
+    role: 'owner',
+    demo: 'Ректор',
+    heads: true,
+  },
+  {
+    key: 'pr_edu',
+    last: 'Каримова',
+    first: 'Нилуфар',
+    middle: 'Ахмедовна',
+    position: 'Проректор по учебной работе',
+    dept: 'edu',
+    role: 'admin',
+    demo: 'Проректор',
+    heads: true,
+  },
+  {
+    key: 'pr_sci',
+    last: 'Назаров',
+    first: 'Бахтиёр',
+    middle: 'Умарович',
+    position: 'Проректор по научной работе',
+    dept: 'sci',
+    role: 'admin',
+    heads: true,
+  },
+  {
+    key: 'pr_vosp',
+    last: 'Юсупова',
+    first: 'Мадина',
+    middle: 'Рустамовна',
+    position: 'Проректор по воспитательной работе',
+    dept: 'vosp',
+    role: 'admin',
+    heads: true,
+  },
+  {
+    key: 'umu',
+    last: 'Кодиров',
+    first: 'Азиз',
+    middle: 'Бахромович',
+    position: 'Начальник УМУ',
+    dept: 'umu',
+    role: 'member',
+    heads: true,
+  },
+  {
+    key: 'dean_econ',
+    last: 'Абдуллоев',
+    first: 'Шерзод',
+    middle: 'Камолович',
+    position: 'Декан ФЭУ',
+    dept: 'econ',
+    role: 'member',
+    demo: 'Декан',
+    heads: true,
+  },
+  {
+    key: 'dean_it',
+    last: 'Сафарова',
+    first: 'Гулнора',
+    middle: 'Исмоиловна',
+    position: 'Декан ФИТ',
+    dept: 'itf',
+    role: 'member',
+    heads: true,
+  },
+  {
+    key: 'dean_phil',
+    last: 'Олимов',
+    first: 'Даврон',
+    middle: 'Рашидович',
+    position: 'Декан филологического факультета',
+    dept: 'phil',
+    role: 'member',
+    heads: true,
+  },
+  {
+    key: 'fin',
+    last: 'Хасанов',
+    first: 'Илхом',
+    middle: 'Шарифович',
+    position: 'Заведующий кафедрой финансов и кредита',
+    dept: 'fin',
+    role: 'member',
+    heads: true,
+  },
+  {
+    key: 'mgmt',
+    last: 'Мирзоева',
+    first: 'Зарина',
+    middle: 'Алиевна',
+    position: 'Заведующая кафедрой менеджмента',
+    dept: 'mgmt',
+    role: 'member',
+    heads: true,
+  },
+  {
+    key: 'se',
+    last: 'Петров',
+    first: 'Алексей',
+    middle: 'Викторович',
+    position: 'Заведующий кафедрой программной инженерии',
+    dept: 'se',
+    role: 'member',
+    heads: true,
+  },
+  {
+    key: 'math',
+    last: 'Иванова',
+    first: 'Елена',
+    middle: 'Сергеевна',
+    position: 'Заведующая кафедрой прикладной математики',
+    dept: 'math',
+    role: 'member',
+    heads: true,
+  },
+  {
+    key: 'grad',
+    last: 'Захарова',
+    first: 'Анна',
+    middle: 'Павловна',
+    position: 'Начальник отдела аспирантуры',
+    dept: 'grad',
+    role: 'member',
+    heads: true,
+  },
+  {
+    key: 'ahch',
+    last: 'Бобоев',
+    first: 'Джамшед',
+    middle: 'Насруллоевич',
+    position: 'Проректор по АХЧ',
+    dept: 'ahch',
+    role: 'member',
+    heads: true,
+  },
+  {
+    key: 'hr',
+    last: 'Турсунова',
+    first: 'Малика',
+    middle: 'Фарруховна',
+    position: 'Начальник отдела кадров',
+    dept: 'hr',
+    role: 'member',
+    heads: true,
+  },
+  {
+    key: 'acc',
+    last: 'Сидорова',
+    first: 'Ольга',
+    middle: 'Николаевна',
+    position: 'Главный бухгалтер',
+    dept: 'acc',
+    role: 'member',
+    heads: true,
+  },
+  {
+    key: 'it',
+    last: 'Ли',
+    first: 'Дмитрий',
+    middle: 'Владимирович',
+    position: 'Директор IT-центра',
+    dept: 'it',
+    role: 'admin',
+    heads: true,
+  },
+  {
+    key: 'umu_spec',
+    last: 'Носирова',
+    first: 'Дилноза',
+    middle: 'Хайдаровна',
+    position: 'Методист УМУ',
+    dept: 'umu',
+    role: 'member',
+    demo: 'Сотрудник',
+  },
+  {
+    key: 'it_spec',
+    last: 'Гафуров',
+    first: 'Сухроб',
+    middle: 'Давлатович',
+    position: 'Системный администратор',
+    dept: 'it',
+    role: 'member',
+  },
+  {
+    key: 'econ_spec',
+    last: 'Шарипова',
+    first: 'Мехрона',
+    middle: 'Шодиевна',
+    position: 'Старший преподаватель',
+    dept: 'fin',
+    role: 'member',
+    invited: 86,
+  },
+  {
+    key: 'phil_spec',
+    last: 'Раджабов',
+    first: 'Фирдавс',
+    middle: 'Олимович',
+    position: 'Доцент',
+    dept: 'phil',
+    role: 'member',
+    invited: 84,
+  },
 ];
 
 const emailOf = (p: Person) => `${p.key.replace('_', '.')}${DOMAIN}`;
@@ -213,10 +433,29 @@ interface ProjectDef {
 
 const PROJECTS: ProjectDef[] = [
   {
-    key: 'accr', name: 'Аккредитация 2027', identifier: 'ACCR', icon: '🎓', color: '#3B82F6',
+    key: 'accr',
+    name: 'Аккредитация 2027',
+    identifier: 'ACCR',
+    icon: '🎓',
+    color: '#3B82F6',
     description: 'Подготовка к государственной аккредитации образовательных программ.',
-    dept: 'edu', lead: 'pr_edu', createdBy: 'pr_edu', start: -80, target: 120,
-    team: ['umu', 'dean_econ', 'dean_it', 'dean_phil', 'fin', 'mgmt', 'se', 'math', 'umu_spec', 'econ_spec'],
+    dept: 'edu',
+    lead: 'pr_edu',
+    createdBy: 'pr_edu',
+    start: -80,
+    target: 120,
+    team: [
+      'umu',
+      'dean_econ',
+      'dean_it',
+      'dean_phil',
+      'fin',
+      'mgmt',
+      'se',
+      'math',
+      'umu_spec',
+      'econ_spec',
+    ],
     controllers: ['pr_edu', 'rector', 'umu'],
     titles: [
       'Подготовить отчёт о самообследовании факультета',
@@ -235,9 +474,17 @@ const PROJECTS: ProjectDef[] = [
     ],
   },
   {
-    key: 'adm', name: 'Приёмная кампания 2027', identifier: 'ADM', icon: '📝', color: '#10B981',
+    key: 'adm',
+    name: 'Приёмная кампания 2027',
+    identifier: 'ADM',
+    icon: '📝',
+    color: '#10B981',
     description: 'Организация приёма абитуриентов: правила, контрольные цифры, профориентация.',
-    dept: 'edu', lead: 'pr_edu', createdBy: 'pr_edu', start: -40, target: 200,
+    dept: 'edu',
+    lead: 'pr_edu',
+    createdBy: 'pr_edu',
+    start: -40,
+    target: 200,
     team: ['umu', 'umu_spec', 'dean_econ', 'dean_it', 'dean_phil', 'it', 'it_spec', 'phil_spec'],
     controllers: ['pr_edu', 'umu'],
     titles: [
@@ -254,9 +501,17 @@ const PROJECTS: ProjectDef[] = [
     ],
   },
   {
-    key: 'dig', name: 'Цифровизация университета', identifier: 'DIG', icon: '💻', color: '#8B5CF6',
+    key: 'dig',
+    name: 'Цифровизация университета',
+    identifier: 'DIG',
+    icon: '💻',
+    color: '#8B5CF6',
     description: 'Электронный документооборот, личные кабинеты, единая система поручений.',
-    dept: 'it', lead: 'it', createdBy: 'it', start: -70, target: 150,
+    dept: 'it',
+    lead: 'it',
+    createdBy: 'it',
+    start: -70,
+    target: 150,
     team: ['it', 'it_spec', 'se', 'math', 'acc', 'hr'],
     controllers: ['it', 'rector'],
     titles: [
@@ -274,9 +529,18 @@ const PROJECTS: ProjectDef[] = [
     ],
   },
   {
-    key: 'year', name: 'Подготовка к учебному году', identifier: 'YEAR', icon: '🏫', color: '#F59E0B',
+    key: 'year',
+    name: 'Подготовка к учебному году',
+    identifier: 'YEAR',
+    icon: '🏫',
+    color: '#F59E0B',
     description: 'Ремонт аудиторий, общежития, закупки и готовность корпусов.',
-    dept: 'ahch', lead: 'ahch', createdBy: 'rector', start: -75, target: -5, status: 'completed',
+    dept: 'ahch',
+    lead: 'ahch',
+    createdBy: 'rector',
+    start: -75,
+    target: -5,
+    status: 'completed',
     team: ['ahch', 'acc', 'it_spec', 'hr', 'pr_vosp'],
     controllers: ['ahch', 'rector'],
     titles: [
@@ -291,9 +555,17 @@ const PROJECTS: ProjectDef[] = [
     ],
   },
   {
-    key: 'sci', name: 'Научная деятельность и гранты', identifier: 'SCI', icon: '🔬', color: '#EF4444',
+    key: 'sci',
+    name: 'Научная деятельность и гранты',
+    identifier: 'SCI',
+    icon: '🔬',
+    color: '#EF4444',
     description: 'Гранты, публикации, конференции и подготовка научных кадров.',
-    dept: 'sci', lead: 'pr_sci', createdBy: 'pr_sci', start: -60, target: 180,
+    dept: 'sci',
+    lead: 'pr_sci',
+    createdBy: 'pr_sci',
+    start: -60,
+    target: 180,
     team: ['grad', 'se', 'math', 'fin', 'mgmt', 'econ_spec', 'phil_spec'],
     controllers: ['pr_sci'],
     titles: [
@@ -309,9 +581,18 @@ const PROJECTS: ProjectDef[] = [
     ],
   },
   {
-    key: 'hr', name: 'Кадровые вопросы', identifier: 'HR', icon: '👥', color: '#6B7280',
+    key: 'hr',
+    name: 'Кадровые вопросы',
+    identifier: 'HR',
+    icon: '👥',
+    color: '#6B7280',
     description: 'Конкурсный отбор, аттестация и повышение квалификации ППС.',
-    dept: 'hr', lead: 'hr', createdBy: 'rector', start: -50, target: 90, visibility: 'private',
+    dept: 'hr',
+    lead: 'hr',
+    createdBy: 'rector',
+    start: -50,
+    target: 90,
+    visibility: 'private',
     team: ['hr', 'acc', 'umu'],
     controllers: ['rector', 'hr'],
     titles: [
@@ -392,7 +673,12 @@ type Scenario =
 function scenarioFor(reliability: number, projectCompleted: boolean): Scenario {
   if (projectCompleted) return rand() < reliability ? 'done_on_time' : 'done_late';
   const r = rand();
-  if (r < 0.46) return rand() < reliability ? (rand() < 0.3 ? 'returned_then_done' : 'done_on_time') : 'done_late';
+  if (r < 0.46)
+    return rand() < reliability
+      ? rand() < 0.3
+        ? 'returned_then_done'
+        : 'done_on_time'
+      : 'done_late';
   if (r < 0.55) return 'in_review';
   if (r < 0.66) return 'in_progress';
   if (r < 0.66 + (1 - reliability) * 0.7) return 'overdue';
@@ -448,9 +734,14 @@ async function reset(): Promise<void> {
   });
   for (const f of files) await storage.delete(f.storage_key).catch(() => undefined);
 
-  const users = await prisma.user.findMany({ where: { email: { endsWith: DOMAIN } }, select: { id: true } });
+  const users = await prisma.user.findMany({
+    where: { email: { endsWith: DOMAIN } },
+    select: { id: true },
+  });
   // A half-answered bot question (no foreign key) must not outlive its user.
-  await prisma.telegramPendingInput.deleteMany({ where: { user_id: { in: users.map((u) => u.id) } } });
+  await prisma.telegramPendingInput.deleteMany({
+    where: { user_id: { in: users.map((u) => u.id) } },
+  });
   await prisma.workspace.deleteMany({ where: { slug: SLUG } });
   await prisma.user.deleteMany({ where: { email: { endsWith: DOMAIN } } });
 }
@@ -464,7 +755,10 @@ interface Activity {
   new_value?: string | null;
 }
 
-export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): Promise<SeedDemoResult> {
+export async function seedDemo(
+  client: PrismaClient,
+  options: SeedDemoOptions,
+): Promise<SeedDemoResult> {
   prisma = client;
   storage = options.storage;
   NOW = options.now ?? Date.now();
@@ -505,7 +799,9 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
   const telegramKey = DEMO_TELEGRAM_ACCOUNTS[options.telegramRole ?? 'dean'];
   if (options.telegramId) {
     const taken = await prisma.authIdentity.findUnique({
-      where: { provider_provider_user_id: { provider: 'telegram', provider_user_id: options.telegramId } },
+      where: {
+        provider_provider_user_id: { provider: 'telegram', provider_user_id: options.telegramId },
+      },
       select: { user: { select: { display_name: true, email: true } } },
     });
     if (taken) {
@@ -595,7 +891,11 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
     recipients: string[],
     issueId: string,
     when: Date,
-    opts: { entity?: string; system?: boolean; readAt?: Date | ((recipient: string) => Date | undefined) } = {},
+    opts: {
+      entity?: string;
+      system?: boolean;
+      readAt?: Date | ((recipient: string) => Date | undefined);
+    } = {},
   ): void {
     const created = cap(when);
     for (const r of new Set(recipients)) {
@@ -675,7 +975,12 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
       issueKey: r.issueKey,
       title: r.title,
       basis: r.basis,
-      executor: { name: fullName(p), short: shortName(p), position: lowerFirst(p.position), department: deptByKey.get(p.dept)!.name },
+      executor: {
+        name: fullName(p),
+        short: shortName(p),
+        position: lowerFirst(p.position),
+        department: deptByKey.get(p.dept)!.name,
+      },
       controller: c ? `${fullName(c)}, ${lowerFirst(c.position)}` : null,
       due: r.due ? fmt(r.due) : null,
       date: fmt(r.submittedAt),
@@ -685,7 +990,15 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
       draft: r.draft ?? false,
     });
     const entries = [
-      await upload(r.issueId, r.assignee, `Отчёт ${r.issueKey}${r.draft ? ' (первая редакция)' : ''}.pdf`, PDF_MIME, pdf, when, r.reviewId),
+      await upload(
+        r.issueId,
+        r.assignee,
+        `Отчёт ${r.issueKey}${r.draft ? ' (первая редакция)' : ''}.pdf`,
+        PDF_MIME,
+        pdf,
+        when,
+        r.reviewId,
+      ),
     ];
     if (r.withTable) {
       const xlsx = await summaryXlsx({
@@ -697,7 +1010,17 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
           return { unit, plan, fact: Math.max(1, Math.round(plan * (0.65 + rand() * 0.35))) };
         }),
       });
-      entries.push(await upload(r.issueId, r.assignee, `Сводная таблица ${r.issueKey}.xlsx`, XLSX_MIME, xlsx, when, r.reviewId));
+      entries.push(
+        await upload(
+          r.issueId,
+          r.assignee,
+          `Сводная таблица ${r.issueKey}.xlsx`,
+          XLSX_MIME,
+          xlsx,
+          when,
+          r.reviewId,
+        ),
+      );
     }
     return entries;
   }
@@ -723,11 +1046,25 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
         ? `@${handleOf(person(mention))} ${pick(author === opts.reviewer ? MENTIONS_TO_ASSIGNEE : MENTIONS_TO_CONTROLLER)}`
         : pick(COMMENTS);
       const comment = await prisma.comment.create({
-        data: { issue_id: opts.issueId, author_id: uid(author), body, created_at: when, updated_at: when },
+        data: {
+          issue_id: opts.issueId,
+          author_id: uid(author),
+          body,
+          created_at: when,
+          updated_at: when,
+        },
       });
       entries.push({ action: 'comment.created', actor: author, when, new_value: comment.id });
-      if (mention) notify('mentioned', author, [mention], opts.issueId, when, { entity: comment.id });
-      notify('comment_added', author, opts.watchers.filter((w) => w !== mention), opts.issueId, when, { entity: comment.id });
+      if (mention)
+        notify('mentioned', author, [mention], opts.issueId, when, { entity: comment.id });
+      notify(
+        'comment_added',
+        author,
+        opts.watchers.filter((w) => w !== mention),
+        opts.issueId,
+        when,
+        { entity: comment.id },
+      );
 
       if (body === MINUTES_COMMENT) {
         const chair = person(author);
@@ -743,7 +1080,17 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
           decisions: pickSome(MINUTES_DECISIONS, 3),
         });
         const uploaded = new Date(when.getTime() - between(2, 10) * 60_000);
-        entries.push(await upload(opts.issueId, author, `Протокол совещания от ${fmt(when)}.pdf`, PDF_MIME, pdf, uploaded, null));
+        entries.push(
+          await upload(
+            opts.issueId,
+            author,
+            `Протокол совещания от ${fmt(when)}.pdf`,
+            PDF_MIME,
+            pdf,
+            uploaded,
+            null,
+          ),
+        );
       }
     }
     return entries;
@@ -765,11 +1112,21 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
   }
 
   /** Open, dated work: the reminder scheduler's view, for the reminder history below. */
-  const openWork: { id: string; created: Date; due: Date; owners: string[]; controller: string; primary: string | null }[] = [];
+  const openWork: {
+    id: string;
+    created: Date;
+    due: Date;
+    owners: string[];
+    controller: string;
+    primary: string | null;
+  }[] = [];
 
   let issueCount = 0;
   // Project id and state ids per project key, for the distributions below.
-  const projectInfo = new Map<string, { id: string; identifier: string; stateOf: (g: StateGroup) => string; next: number }>();
+  const projectInfo = new Map<
+    string,
+    { id: string; identifier: string; stateOf: (g: StateGroup) => string; next: number }
+  >();
 
   for (const def of PROJECTS) {
     const project = await prisma.project.create({
@@ -789,10 +1146,17 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
         created_at: at(def.start),
       },
     });
-    await prisma.state.createMany({ data: DEFAULT_STATES.map((s) => ({ ...s, project_id: project.id })) });
+    await prisma.state.createMany({
+      data: DEFAULT_STATES.map((s) => ({ ...s, project_id: project.id })),
+    });
     const states = await prisma.state.findMany({ where: { project_id: project.id } });
     const stateOf = (g: StateGroup) => states.find((s) => s.group === g)!.id;
-    projectInfo.set(def.key, { id: project.id, identifier: def.identifier, stateOf, next: def.titles.length + 1 });
+    projectInfo.set(def.key, {
+      id: project.id,
+      identifier: def.identifier,
+      stateOf,
+      next: def.titles.length + 1,
+    });
 
     const memberKeys = [...new Set([def.lead, ...def.team, ...def.controllers])];
     await prisma.projectMember.createMany({
@@ -809,7 +1173,9 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
         { name: 'Отчётность', color: '#3B82F6' },
         { name: 'Документы', color: '#10B981' },
         { name: 'Министерство', color: '#8B5CF6' },
-      ].map((l) => prisma.label.create({ data: { ...l, workspace_id: wsId, project_id: project.id } })),
+      ].map((l) =>
+        prisma.label.create({ data: { ...l, workspace_id: wsId, project_id: project.id } }),
+      ),
     );
 
     // Build the issues first so sequence ids follow creation dates.
@@ -833,7 +1199,9 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
       const { title, assignee, scenario, created } = plan;
       const issueKey = `${def.identifier}-${index + 1}`;
       const isAssignment = rand() < 0.8;
-      const controller = isAssignment ? pick(def.controllers.filter((c) => c !== assignee)) ?? def.lead : null;
+      const controller = isAssignment
+        ? (pick(def.controllers.filter((c) => c !== assignee)) ?? def.lead)
+        : null;
       const creator = controller ?? def.lead;
       const coAssignee = rand() < 0.25 ? pick(def.team.filter((t) => t !== assignee)) : null;
 
@@ -849,9 +1217,7 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
       let completed: Date | null = null;
       if (done && due) {
         completed =
-          scenario === 'done_late'
-            ? plusDays(due, between(1, 6))
-            : plusDays(due, -between(0, 4));
+          scenario === 'done_late' ? plusDays(due, between(1, 6)) : plusDays(due, -between(0, 4));
         if (completed <= created) completed = plusDays(created, 1);
         completed = minDate(completed, at(-1));
       }
@@ -924,14 +1290,23 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
 
       // History: created → acknowledged → (deadline moved) → hand-ins / decisions → done.
       const activity: Activity[] = [{ action: 'issue.created', actor: creator, when: created }];
-      notify('issue_assigned', creator, assignees, issue.id, created, { readAt: (a) => ackAt.get(a) });
+      notify('issue_assigned', creator, assignees, issue.id, created, {
+        readAt: (a) => ackAt.get(a),
+      });
       for (const [a, when] of ackAt) {
         activity.push({ action: 'issue.acknowledged', actor: a, when });
         notify('acknowledged', a, [reviewer], issue.id, when);
       }
       if (group === 'started') {
         const when = cap(plusDays(ackAt.get(assignee) ?? created, 0.2 + rand() * 0.8));
-        activity.push({ action: 'issue.updated', actor: assignee, when, field: 'state_id', old_value: stateOf('unstarted'), new_value: stateOf('started') });
+        activity.push({
+          action: 'issue.updated',
+          actor: assignee,
+          when,
+          field: 'state_id',
+          old_value: stateOf('unstarted'),
+          new_value: stateOf('started'),
+        });
         notify('state_changed', assignee, watchers, issue.id, when);
       }
 
@@ -941,7 +1316,11 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
         const approved = rand() < 0.65;
         const oldDue = plusDays(due, -between(3, 7));
         let requestedAt = plusDays(created, between(2, 5));
-        if (completed) requestedAt = maxDate(minDate(requestedAt, plusDays(completed, -0.6)), plusDays(created, 0.1));
+        if (completed)
+          requestedAt = maxDate(
+            minDate(requestedAt, plusDays(completed, -0.6)),
+            plusDays(created, 0.1),
+          );
         requestedAt = cap(requestedAt);
         const decidedAt = cap(plusDays(requestedAt, 0.5));
         const request = await prisma.deadlineChangeRequest.create({
@@ -961,14 +1340,25 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
         });
         deadlineAsked = true;
         activity.push({ action: 'issue.deadline_requested', actor: assignee, when: requestedAt });
-        activity.push({ action: approved ? 'issue.deadline_approved' : 'issue.deadline_rejected', actor: reviewer, when: decidedAt });
-        notify('deadline_change_requested', assignee, [reviewer], issue.id, requestedAt, { entity: request.id, readAt: decidedAt });
-        notify('deadline_change_decided', reviewer, [assignee], issue.id, decidedAt, { entity: request.id });
+        activity.push({
+          action: approved ? 'issue.deadline_approved' : 'issue.deadline_rejected',
+          actor: reviewer,
+          when: decidedAt,
+        });
+        notify('deadline_change_requested', assignee, [reviewer], issue.id, requestedAt, {
+          entity: request.id,
+          readAt: decidedAt,
+        });
+        notify('deadline_change_decided', reviewer, [assignee], issue.id, decidedAt, {
+          entity: request.id,
+        });
       }
 
       const reportCtx = { issueId: issue.id, issueKey, title, basis, assignee, controller, due };
       if (isAssignment && scenario === 'returned_then_done' && completed) {
-        const firstSubmit = cap(maxDate(plusDays(completed, -between(2, 4)), plusDays(created, 0.2)));
+        const firstSubmit = cap(
+          maxDate(plusDays(completed, -between(2, 4)), plusDays(created, 0.2)),
+        );
         const returnedAt = cap(plusDays(firstSubmit, 0.4));
         const review = await prisma.issueReview.create({
           data: {
@@ -997,7 +1387,10 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
         }
         activity.push({ action: 'issue.review_submitted', actor: assignee, when: firstSubmit });
         activity.push({ action: 'issue.review_returned', actor: reviewer, when: returnedAt });
-        notify('review_requested', assignee, [reviewer], issue.id, firstSubmit, { entity: review.id, readAt: returnedAt });
+        notify('review_requested', assignee, [reviewer], issue.id, firstSubmit, {
+          entity: review.id,
+          readAt: returnedAt,
+        });
         notify('review_returned', reviewer, assignees, issue.id, returnedAt, { entity: review.id });
       }
       if (isAssignment && completed) {
@@ -1027,7 +1420,10 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
         }
         activity.push({ action: 'issue.review_submitted', actor: assignee, when: submit });
         activity.push({ action: 'issue.review_approved', actor: reviewer, when: completed });
-        notify('review_requested', assignee, [reviewer], issue.id, submit, { entity: review.id, readAt: completed });
+        notify('review_requested', assignee, [reviewer], issue.id, submit, {
+          entity: review.id,
+          readAt: completed,
+        });
         notify('review_approved', reviewer, assignees, issue.id, completed, { entity: review.id });
       }
       if (isAssignment && scenario === 'in_review') {
@@ -1073,7 +1469,9 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
         ['in_progress', 'due_soon', 'overdue'].includes(scenario) &&
         rand() < 0.22
       ) {
-        const requestedAt = cap(maxDate(new Date(NOW - between(2, 30) * 3_600_000), plusDays(created, 0.3)));
+        const requestedAt = cap(
+          maxDate(new Date(NOW - between(2, 30) * 3_600_000), plusDays(created, 0.3)),
+        );
         const request = await prisma.deadlineChangeRequest.create({
           data: {
             workspace_id: wsId,
@@ -1087,7 +1485,9 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
           },
         });
         activity.push({ action: 'issue.deadline_requested', actor: assignee, when: requestedAt });
-        notify('deadline_change_requested', assignee, [reviewer], issue.id, requestedAt, { entity: request.id });
+        notify('deadline_change_requested', assignee, [reviewer], issue.id, requestedAt, {
+          entity: request.id,
+        });
       }
 
       activity.push(
@@ -1105,7 +1505,14 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
       await writeActivity(issue.id, activity);
 
       if (!done && due) {
-        openWork.push({ id: issue.id, created, due, owners: assignees, controller: reviewer, primary: assignee });
+        openWork.push({
+          id: issue.id,
+          created,
+          due,
+          owners: assignees,
+          controller: reviewer,
+          primary: assignee,
+        });
       }
     }
   }
@@ -1153,16 +1560,35 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
       data: [opts.creator, opts.controller].map((k) => ({ issue_id: parent.id, user_id: uid(k) })),
       skipDuplicates: true,
     });
-    await writeActivity(parent.id, [{ action: 'issue.created', actor: opts.creator, when: created }]);
-    openWork.push({ id: parent.id, created, due: opts.due, owners: [opts.creator], controller: opts.controller, primary: null });
+    await writeActivity(parent.id, [
+      { action: 'issue.created', actor: opts.creator, when: created },
+    ]);
+    openWork.push({
+      id: parent.id,
+      created,
+      due: opts.due,
+      owners: [opts.creator],
+      controller: opts.controller,
+      primary: null,
+    });
 
     for (const plan of opts.children) {
       const dept = deptByKey.get(plan.dept)!;
       const head = headOf(plan.dept)!;
       const done = plan.outcome === 'on_time' || plan.outcome === 'late';
       const completed =
-        plan.outcome === 'on_time' ? plusDays(opts.due, -between(1, 3)) : plan.outcome === 'late' ? plusDays(opts.due, 1) : null;
-      const group: StateGroup = done ? 'completed' : plan.outcome === 'review' ? 'review' : plan.outcome === 'new' ? 'unstarted' : 'started';
+        plan.outcome === 'on_time'
+          ? plusDays(opts.due, -between(1, 3))
+          : plan.outcome === 'late'
+            ? plusDays(opts.due, 1)
+            : null;
+      const group: StateGroup = done
+        ? 'completed'
+        : plan.outcome === 'review'
+          ? 'review'
+          : plan.outcome === 'new'
+            ? 'unstarted'
+            : 'started';
       const sequence = info.next++;
       const child = await prisma.issue.create({
         data: {
@@ -1190,15 +1616,25 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
       issueCount += 1;
       const ackAt = plan.outcome === 'new' ? null : cap(plusDays(created, 0.2 + rand() * 0.5));
       await prisma.issueAssignee.create({
-        data: { issue_id: child.id, user_id: uid(head.key), is_primary: true, acknowledged_at: ackAt, created_at: created },
+        data: {
+          issue_id: child.id,
+          user_id: uid(head.key),
+          is_primary: true,
+          acknowledged_at: ackAt,
+          created_at: created,
+        },
       });
       const watchers = [...new Set([opts.creator, opts.controller, head.key])];
       await prisma.issueWatcher.createMany({
         data: watchers.map((k) => ({ issue_id: child.id, user_id: uid(k) })),
         skipDuplicates: true,
       });
-      const activity: Activity[] = [{ action: 'issue.created', actor: opts.creator, when: created }];
-      notify('issue_assigned', opts.creator, [head.key], child.id, created, { readAt: ackAt ?? undefined });
+      const activity: Activity[] = [
+        { action: 'issue.created', actor: opts.creator, when: created },
+      ];
+      notify('issue_assigned', opts.creator, [head.key], child.id, created, {
+        readAt: ackAt ?? undefined,
+      });
       if (ackAt) {
         activity.push({ action: 'issue.acknowledged', actor: head.key, when: ackAt });
         notify('acknowledged', head.key, [opts.controller], child.id, ackAt);
@@ -1237,9 +1673,20 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
         );
         activity.push({ action: 'issue.review_submitted', actor: head.key, when: submit });
         activity.push({ action: 'issue.review_approved', actor: opts.controller, when: completed });
-        activity.push({ action: 'issue.updated', actor: opts.controller, when: completed, field: 'state_id', new_value: info.stateOf('completed') });
-        notify('review_requested', head.key, [opts.controller], child.id, submit, { entity: review.id, readAt: completed });
-        notify('review_approved', opts.controller, [head.key], child.id, completed, { entity: review.id });
+        activity.push({
+          action: 'issue.updated',
+          actor: opts.controller,
+          when: completed,
+          field: 'state_id',
+          new_value: info.stateOf('completed'),
+        });
+        notify('review_requested', head.key, [opts.controller], child.id, submit, {
+          entity: review.id,
+          readAt: completed,
+        });
+        notify('review_approved', opts.controller, [head.key], child.id, completed, {
+          entity: review.id,
+        });
       }
       if (plan.outcome === 'review') {
         const submit = cap(maxDate(at(0, 9), plusDays(created, 1)));
@@ -1262,7 +1709,9 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
           })),
         );
         activity.push({ action: 'issue.review_submitted', actor: head.key, when: submit });
-        notify('review_requested', head.key, [opts.controller], child.id, submit, { entity: review.id });
+        notify('review_requested', head.key, [opts.controller], child.id, submit, {
+          entity: review.id,
+        });
       }
       if (plan.outcome === 'overdue') {
         // Late, and asking for a week more — the controller decides during the demo.
@@ -1279,11 +1728,20 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
           },
         });
         activity.push({ action: 'issue.deadline_requested', actor: head.key, when: requestedAt });
-        notify('deadline_change_requested', head.key, [opts.controller], child.id, requestedAt, { entity: request.id });
+        notify('deadline_change_requested', head.key, [opts.controller], child.id, requestedAt, {
+          entity: request.id,
+        });
       }
       await writeActivity(child.id, activity);
       if (!done) {
-        openWork.push({ id: child.id, created, due: opts.due, owners: [head.key], controller: opts.controller, primary: head.key });
+        openWork.push({
+          id: child.id,
+          created,
+          due: opts.due,
+          owners: [head.key],
+          controller: opts.controller,
+          primary: head.key,
+        });
       }
     }
   }
@@ -1355,10 +1813,19 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
     work: (typeof openWork)[number],
     recipients: string[],
   ) => {
-    const when = maxDate(onDay(sentOn, REMINDER_HOUR, between(0, 10)), new Date(work.created.getTime() + 5 * 60_000));
+    const when = maxDate(
+      onDay(sentOn, REMINDER_HOUR, between(0, 10)),
+      new Date(work.created.getTime() + 5 * 60_000),
+    );
     notify(type, work.controller, recipients, work.id, when, { system: true });
     for (const r of new Set(recipients)) {
-      reminderLog.push({ issue_id: work.id, user_id: uid(r), kind: logKind, for_date: forDate, created_at: cap(when) });
+      reminderLog.push({
+        issue_id: work.id,
+        user_id: uid(r),
+        kind: logKind,
+        for_date: forDate,
+        created_at: cap(when),
+      });
     }
   };
   for (const work of openWork) {
@@ -1366,7 +1833,8 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
     const createdOn = day(work.created);
     for (const left of REMINDER_DAYS) {
       const sentOn = addDays(due, -left);
-      if (sentOn >= createdOn && sentOn <= lastDay) remind('due_soon', `due_soon:${left}`, due, sentOn, work, work.owners);
+      if (sentOn >= createdOn && sentOn <= lastDay)
+        remind('due_soon', `due_soon:${left}`, due, sentOn, work, work.owners);
     }
     for (let d = addDays(due, 1); d <= lastDay; d = addDays(d, 1)) {
       if (d < createdOn) continue;
@@ -1376,7 +1844,10 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
     const escalateOn = maxDay(addDays(due, ESCALATION_DAYS), createdOn);
     if (escalateOn <= lastDay) {
       const head = work.primary ? headOf(person(work.primary).dept)?.key : undefined;
-      remind('escalated', 'escalated', due, escalateOn, work, [work.controller, ...(head && head !== work.primary ? [head] : [])]);
+      remind('escalated', 'escalated', due, escalateOn, work, [
+        work.controller,
+        ...(head && head !== work.primary ? [head] : []),
+      ]);
     }
   }
 
@@ -1407,49 +1878,133 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
       ip: opts.mobile
         ? `${pick(['95.142', '178.91', '188.130'])}.${between(1, 254)}.${between(2, 254)}`
         : `10.20.${DEPARTMENTS.findIndex((d) => d.key === p.dept) + 1}.${i + 11}`,
-      user_agent: opts.mobile ? MOBILE_AGENTS[i % MOBILE_AGENTS.length]! : DESKTOP_AGENTS[i % DESKTOP_AGENTS.length]!,
+      user_agent: opts.mobile
+        ? MOBILE_AGENTS[i % MOBILE_AGENTS.length]!
+        : DESKTOP_AGENTS[i % DESKTOP_AGENTS.length]!,
       created_at: cap(when),
     });
   }
 
   // Setting up the stand: workspace, structure, people.
-  audited('rector', 'workspace.updated', at(-90, 11), { type: 'workspace', id: wsId }, {
-    name: WS_NAME, short_name: 'ГУ', timezone: TZ, fields: ['name', 'short_name', 'timezone'],
-  });
+  audited(
+    'rector',
+    'workspace.updated',
+    at(-90, 11),
+    { type: 'workspace', id: wsId },
+    {
+      name: WS_NAME,
+      short_name: 'ГУ',
+      timezone: TZ,
+      fields: ['name', 'short_name', 'timezone'],
+    },
+  );
   for (const d of DEPARTMENTS) {
-    audited('it', 'department.created', at(-90, 14), { type: 'department', id: deptId.get(d.key)! }, {
-      name: d.name, ...(d.short && { short_name: d.short }),
-    });
+    audited(
+      'it',
+      'department.created',
+      at(-90, 14),
+      { type: 'department', id: deptId.get(d.key)! },
+      {
+        name: d.name,
+        ...(d.short && { short_name: d.short }),
+      },
+    );
   }
   for (const p of PEOPLE) {
     if (p.role === 'owner') continue;
     if (p.invited) {
-      audited('it', 'invite.sent', at(-p.invited, 10), { type: 'user', id: uid(p.key) }, { user_id: uid(p.key), role: p.role });
+      audited(
+        'it',
+        'invite.sent',
+        at(-p.invited, 10),
+        { type: 'user', id: uid(p.key) },
+        { user_id: uid(p.key), role: p.role },
+      );
     } else {
-      audited('it', 'member.added', at(-89, 10), { type: 'user', id: uid(p.key) }, {
-        user_id: uid(p.key), role: p.role, position: p.position,
-      });
+      audited(
+        'it',
+        'member.added',
+        at(-89, 10),
+        { type: 'user', id: uid(p.key) },
+        {
+          user_id: uid(p.key),
+          role: p.role,
+          position: p.position,
+        },
+      );
     }
   }
-  audited('it', 'department.updated', at(-88, 11), { type: 'department', id: deptId.get('itf')! }, {
-    head_id: uid('dean_it'), fields: ['head_id'],
-  });
-  audited('rector', 'member.updated', at(-75, 16), { type: 'user', id: uid('it') }, { role: 'admin', fields: ['role'] });
+  audited(
+    'it',
+    'department.updated',
+    at(-88, 11),
+    { type: 'department', id: deptId.get('itf')! },
+    {
+      head_id: uid('dean_it'),
+      fields: ['head_id'],
+    },
+  );
+  audited(
+    'rector',
+    'member.updated',
+    at(-75, 16),
+    { type: 'user', id: uid('it') },
+    { role: 'admin', fields: ['role'] },
+  );
   for (const def of PROJECTS) {
-    audited(def.createdBy, 'project.created', at(def.start, 12), { type: 'project', id: projectInfo.get(def.key)!.id }, {
-      name: def.name, identifier: def.identifier, visibility: def.visibility ?? 'public',
-    });
+    audited(
+      def.createdBy,
+      'project.created',
+      at(def.start, 12),
+      { type: 'project', id: projectInfo.get(def.key)!.id },
+      {
+        name: def.name,
+        identifier: def.identifier,
+        visibility: def.visibility ?? 'public',
+      },
+    );
   }
-  audited('rector', 'project.member_added', at(-49, 10), { type: 'user', id: uid('acc') }, { user_id: uid('acc'), role: 'member' });
-  audited('rector', 'project.member_added', at(-49, 10), { type: 'user', id: uid('umu') }, { user_id: uid('umu'), role: 'member' });
-  audited('pr_edu', 'settings.control_updated', at(-30, 15), { type: 'settings', id: wsId }, {
-    fields: ['reminder_days', 'reminder_hour', 'escalation_days'],
-  });
-  audited('pr_edu', 'member.updated', at(-21, 11), { type: 'user', id: uid('umu_spec') }, {
-    position: 'Методист УМУ', fields: ['position'],
-  });
+  audited(
+    'rector',
+    'project.member_added',
+    at(-49, 10),
+    { type: 'user', id: uid('acc') },
+    { user_id: uid('acc'), role: 'member' },
+  );
+  audited(
+    'rector',
+    'project.member_added',
+    at(-49, 10),
+    { type: 'user', id: uid('umu') },
+    { user_id: uid('umu'), role: 'member' },
+  );
+  audited(
+    'pr_edu',
+    'settings.control_updated',
+    at(-30, 15),
+    { type: 'settings', id: wsId },
+    {
+      fields: ['reminder_days', 'reminder_hour', 'escalation_days'],
+    },
+  );
+  audited(
+    'pr_edu',
+    'member.updated',
+    at(-21, 11),
+    { type: 'user', id: uid('umu_spec') },
+    {
+      position: 'Методист УМУ',
+      fields: ['position'],
+    },
+  );
   audited('pr_edu', 'issue.deleted', duplicateDeleted, { type: 'issue', id: duplicate.id });
-  audited('rector', 'project.updated', at(-5, 17), { type: 'project', id: projectInfo.get('year')!.id }, { fields: ['status'] });
+  audited(
+    'rector',
+    'project.updated',
+    at(-5, 17),
+    { type: 'project', id: projectInfo.get('year')!.id },
+    { fields: ['status'] },
+  );
 
   // Reports for the rector's Monday meetings, the registry for the vice-rector.
   const weekday = new Date(`${today}T12:00:00Z`).getUTCDay();
@@ -1457,13 +2012,28 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
   for (let w = 0; w < 8; w++) {
     const date = addDays(monday, -7 * w);
     const range = { from: addDays(date, -7), to: addDays(date, -1) };
-    audited('rector', 'report.exported', onDay(date, 8, between(30, 55)), { type: 'report', id: 'discipline.pdf' }, {
-      report: 'discipline.pdf', ...range,
-    });
+    audited(
+      'rector',
+      'report.exported',
+      onDay(date, 8, between(30, 55)),
+      { type: 'report', id: 'discipline.pdf' },
+      {
+        report: 'discipline.pdf',
+        ...range,
+      },
+    );
     if (w % 2 === 0) {
-      audited('pr_edu', 'report.exported', onDay(date, 11, between(0, 50)), { type: 'report', id: 'assignments.xlsx' }, {
-        report: 'assignments.xlsx', ...range, kind: 'assignment',
-      });
+      audited(
+        'pr_edu',
+        'report.exported',
+        onDay(date, 11, between(0, 50)),
+        { type: 'report', id: 'assignments.xlsx' },
+        {
+          report: 'assignments.xlsx',
+          ...range,
+          kind: 'assignment',
+        },
+      );
     }
   }
 
@@ -1478,11 +2048,22 @@ export async function seedDemo(client: PrismaClient, options: SeedDemoOptions): 
       const mobile = rand() < 0.3;
       const loginAt = onDay(date, between(8, 10), between(0, 59));
       if (loginAt.getTime() >= NOW) continue;
-      const method = mobile && telegram === 'linked' && p.key === telegramKey ? 'telegram' : 'email_code';
-      audited(p.key, 'auth.login', loginAt, { type: 'user', id: uid(p.key) }, { method }, { mobile, workspace: false });
+      const method =
+        mobile && telegram === 'linked' && p.key === telegramKey ? 'telegram' : 'email_code';
+      audited(
+        p.key,
+        'auth.login',
+        loginAt,
+        { type: 'user', id: uid(p.key) },
+        { method },
+        { mobile, workspace: false },
+      );
       const logoutAt = onDay(date, between(17, 19), between(0, 59));
       if (rand() < 0.25 && logoutAt.getTime() < NOW) {
-        audited(p.key, 'auth.logout', logoutAt, { type: 'user', id: uid(p.key) }, null, { mobile, workspace: false });
+        audited(p.key, 'auth.logout', logoutAt, { type: 'user', id: uid(p.key) }, null, {
+          mobile,
+          workspace: false,
+        });
       }
     }
   }

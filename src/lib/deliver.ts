@@ -36,7 +36,13 @@ export interface IssueEventDetails {
 
 const DAYS: [string, string, string] = ['день', 'дня', 'дней'];
 
-function headline(kind: IssueEventKind, actor: string, key: string, d: IssueEventDetails, fmt: (x?: Date | null) => string) {
+function headline(
+  kind: IssueEventKind,
+  actor: string,
+  key: string,
+  d: IssueEventDetails,
+  fmt: (x?: Date | null) => string,
+) {
   switch (kind) {
     case 'review_requested':
       return `📝 ${actor} сдал(а) на проверку ${key}`;
@@ -89,19 +95,38 @@ export async function deliverIssueEvent(
     });
     if (!issue) return;
     const actor = params.actorId
-      ? await prisma.user.findUnique({ where: { id: params.actorId }, select: { display_name: true } })
+      ? await prisma.user.findUnique({
+          where: { id: params.actorId },
+          select: { display_name: true },
+        })
       : null;
 
     const key = `${issue.project.identifier}-${issue.sequence_id}`;
     const fmt = (x?: Date | null) =>
-      x ? x.toLocaleDateString('ru-RU', { timeZone: issue.workspace.timezone, day: 'numeric', month: 'long' }) : '—';
-    const head = headline(params.kind, actor?.display_name ?? 'Система', key, params.details ?? {}, fmt);
+      x
+        ? x.toLocaleDateString('ru-RU', {
+            timeZone: issue.workspace.timezone,
+            day: 'numeric',
+            month: 'long',
+          })
+        : '—';
+    const head = headline(
+      params.kind,
+      actor?.display_name ?? 'Система',
+      key,
+      params.details ?? {},
+      fmt,
+    );
     const link = issueUrl(issue.workspace.slug, key);
     const text = `${head}\n${issue.title}\n\n${link}`;
 
     const telegram = telegramConfigured()
       ? await prisma.authIdentity.findMany({
-          where: { provider: 'telegram', user_id: { in: recipients }, provider_user_id: { not: null } },
+          where: {
+            provider: 'telegram',
+            user_id: { in: recipients },
+            provider_user_id: { not: null },
+          },
           select: { user_id: true, provider_user_id: true },
         })
       : [];

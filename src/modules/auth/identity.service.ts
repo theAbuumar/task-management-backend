@@ -57,10 +57,7 @@ export async function findOrCreateFromProvider(
       // inactive/unverified. A provider that now vouches for the email proves ownership,
       // so activate + verify (and drop the never-confirmed password). Only fires while
       // dormant, so a normal returning login is untouched.
-      if (
-        profile.email_verified &&
-        (!identity.user.email_verified || !identity.user.is_active)
-      ) {
+      if (profile.email_verified && (!identity.user.email_verified || !identity.user.is_active)) {
         return tx.user.update({
           where: { id: identity.user.id },
           data: { email_verified: true, is_active: true, password_hash: null },

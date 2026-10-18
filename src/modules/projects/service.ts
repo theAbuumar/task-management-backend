@@ -11,7 +11,13 @@ import type {
 /** Default workflow states seeded for every new project (Russian — the primary locale). */
 export const DEFAULT_STATES = [
   { name: 'Бэклог', color: '#6B7280', group: 'backlog' as const, order: 0 },
-  { name: 'К выполнению', color: '#374151', group: 'unstarted' as const, order: 1, is_default: true },
+  {
+    name: 'К выполнению',
+    color: '#374151',
+    group: 'unstarted' as const,
+    order: 1,
+    is_default: true,
+  },
   { name: 'В работе', color: '#3B82F6', group: 'started' as const, order: 2 },
   { name: 'На проверке', color: '#8B5CF6', group: 'review' as const, order: 3 },
   { name: 'Готово', color: '#10B981', group: 'completed' as const, order: 4 },
@@ -89,10 +95,7 @@ export async function listProjects(
       ...(query.department && { department_id: query.department }),
       // Private projects: only for their members, unless the viewer is admin+.
       ...(!seesAllProjects(viewer) && {
-        OR: [
-          { visibility: 'public' as const },
-          { members: { some: { user_id: viewer.user_id } } },
-        ],
+        OR: [{ visibility: 'public' as const }, { members: { some: { user_id: viewer.user_id } } }],
       }),
     },
     include: PROJECT_INCLUDE,

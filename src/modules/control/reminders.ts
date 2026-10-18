@@ -49,7 +49,10 @@ export async function runReminders(
   options: RunOptions = {},
 ): Promise<ReminderRunResult> {
   const now = options.now ?? new Date();
-  const result: ReminderRunResult = { workspaces: 0, sent: { due_soon: 0, overdue: 0, escalated: 0 } };
+  const result: ReminderRunResult = {
+    workspaces: 0,
+    sent: { due_soon: 0, overdue: 0, escalated: 0 },
+  };
 
   const workspaces = await prisma.workspace.findMany({
     where: options.workspaceId ? { id: options.workspaceId } : {},
@@ -96,7 +99,14 @@ export async function runReminders(
       ) => {
         const fresh: string[] = [];
         for (const userId of [...new Set(recipients)]) {
-          if (await claim(prisma, { issue_id: issue.id, user_id: userId, kind: logKind, for_date: forDate })) {
+          if (
+            await claim(prisma, {
+              issue_id: issue.id,
+              user_id: userId,
+              kind: logKind,
+              for_date: forDate,
+            })
+          ) {
             fresh.push(userId);
           }
         }
@@ -128,7 +138,13 @@ export async function runReminders(
 
       const overdueDays = -left;
       const controller = issue.controller_id ?? issue.created_by_id;
-      result.sent.overdue += await send('overdue', 'overdue', today, [...owners, controller], overdueDays);
+      result.sent.overdue += await send(
+        'overdue',
+        'overdue',
+        today,
+        [...owners, controller],
+        overdueDays,
+      );
 
       if (settings.escalation_days > 0 && overdueDays >= settings.escalation_days) {
         const primary = issue.assignees.find((a) => a.is_primary)?.user_id ?? assignees[0];
@@ -143,9 +159,16 @@ export async function runReminders(
           : null;
         const head = member?.department?.head_id;
         const recipients = [controller, ...(head && head !== primary ? [head] : [])];
-        result.sent.escalated += await send('escalated', 'escalated', due, recipients, overdueDays, {
-          responsible: member?.user.display_name ?? null,
-        });
+        result.sent.escalated += await send(
+          'escalated',
+          'escalated',
+          due,
+          recipients,
+          overdueDays,
+          {
+            responsible: member?.user.display_name ?? null,
+          },
+        );
       }
     }
   }

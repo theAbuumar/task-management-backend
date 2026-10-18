@@ -87,7 +87,8 @@ export const createDepartmentSchema: FastifySchema = {
 export const updateDepartmentSchema: FastifySchema = {
   tags: ['Departments'],
   summary: 'Update a department — rename, move in the tree, set the head (admin+)',
-  description: 'Moving a department under itself or its own descendant is rejected (DEPARTMENT_CYCLE).',
+  description:
+    'Moving a department under itself or its own descendant is rejected (DEPARTMENT_CYCLE).',
   security,
   params: deptParams,
   body: {
@@ -106,8 +107,7 @@ export const updateDepartmentSchema: FastifySchema = {
 export const deleteDepartmentSchema: FastifySchema = {
   tags: ['Departments'],
   summary: 'Delete a department (admin+)',
-  description:
-    'Its people and sub-departments move one level up (to the parent, or to the root).',
+  description: 'Its people and sub-departments move one level up (to the parent, or to the root).',
   security,
   params: deptParams,
   response: { 204: { type: 'null' } },

@@ -21,7 +21,11 @@ function formatter(timeZone: string): Intl.DateTimeFormat {
 }
 
 function parts(date: Date, timeZone: string): { date: string; hour: number } {
-  const p = Object.fromEntries(formatter(timeZone).formatToParts(date).map((x) => [x.type, x.value]));
+  const p = Object.fromEntries(
+    formatter(timeZone)
+      .formatToParts(date)
+      .map((x) => [x.type, x.value]),
+  );
   return { date: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour) };
 }
 

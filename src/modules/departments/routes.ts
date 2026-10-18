@@ -23,7 +23,11 @@ export async function departmentRoutes(app: FastifyInstance): Promise<void> {
   app.get('/', { schema: listDepartmentsSchema, preHandler: member }, listDepartmentsHandler);
   app.post(
     '/',
-    { schema: createDepartmentSchema, preHandler: admin, config: { audit: { action: 'department.created', target: 'department' } } },
+    {
+      schema: createDepartmentSchema,
+      preHandler: admin,
+      config: { audit: { action: 'department.created', target: 'department' } },
+    },
     createDepartmentHandler,
   );
   app.patch(
@@ -31,7 +35,9 @@ export async function departmentRoutes(app: FastifyInstance): Promise<void> {
     {
       schema: updateDepartmentSchema,
       preHandler: admin,
-      config: { audit: { action: 'department.updated', target: 'department', param: 'departmentId' } },
+      config: {
+        audit: { action: 'department.updated', target: 'department', param: 'departmentId' },
+      },
     },
     updateDepartmentHandler,
   );
@@ -40,7 +46,9 @@ export async function departmentRoutes(app: FastifyInstance): Promise<void> {
     {
       schema: deleteDepartmentSchema,
       preHandler: admin,
-      config: { audit: { action: 'department.deleted', target: 'department', param: 'departmentId' } },
+      config: {
+        audit: { action: 'department.deleted', target: 'department', param: 'departmentId' },
+      },
     },
     deleteDepartmentHandler,
   );

@@ -39,9 +39,13 @@ async function register(email: string): Promise<Actor> {
 
 function as(actor: Actor) {
   return {
-    get: (url: string) => request(app.server).get(url).set('Authorization', `Bearer ${actor.token}`),
+    get: (url: string) =>
+      request(app.server).get(url).set('Authorization', `Bearer ${actor.token}`),
     post: (url: string, body?: object) =>
-      request(app.server).post(url).set('Authorization', `Bearer ${actor.token}`).send(body ?? {}),
+      request(app.server)
+        .post(url)
+        .set('Authorization', `Bearer ${actor.token}`)
+        .send(body ?? {}),
     patch: (url: string, body: object) =>
       request(app.server).patch(url).set('Authorization', `Bearer ${actor.token}`).send(body),
     delete: (url: string) =>
@@ -214,7 +218,14 @@ describe('projects: fields, private visibility, soft delete', () => {
 
     const states = await as(rector).get(api(`/projects/${publicId}/states`));
     const names = states.body.map((s: { name: string }) => s.name);
-    expect(names).toEqual(['Бэклог', 'К выполнению', 'В работе', 'На проверке', 'Готово', 'Отменено']);
+    expect(names).toEqual([
+      'Бэклог',
+      'К выполнению',
+      'В работе',
+      'На проверке',
+      'Готово',
+      'Отменено',
+    ]);
     stateReview = states.body.find((s: { group: string }) => s.group === 'review').id;
     stateTodo = states.body.find((s: { group: string }) => s.group === 'unstarted').id;
     expect(stateReview).toBeTruthy();
@@ -250,12 +261,17 @@ describe('projects: fields, private visibility, soft delete', () => {
     expect(created.body.assignees[0].user_id).toBe(dean.id);
     expect(created.body.assignees[0].is_primary).toBe(true);
 
-    const switched = await as(rector).patch(api(`/projects/${publicId}/issues/${created.body.id}`), {
-      primary_assignee_id: staff.id,
-    });
+    const switched = await as(rector).patch(
+      api(`/projects/${publicId}/issues/${created.body.id}`),
+      {
+        primary_assignee_id: staff.id,
+      },
+    );
     expect(switched.status).toBe(200);
     expect(switched.body.assignees[0].user_id).toBe(staff.id);
-    expect(switched.body.assignees.filter((a: { is_primary: boolean }) => a.is_primary)).toHaveLength(1);
+    expect(
+      switched.body.assignees.filter((a: { is_primary: boolean }) => a.is_primary),
+    ).toHaveLength(1);
 
     // Deep-link lookup by key (ACCR-1); the private project's keys stay hidden.
     const byKey = await as(staff).get(api(`/issues/by-key/ACCR-${created.body.sequence_id}`));
@@ -272,10 +288,17 @@ describe('projects: fields, private visibility, soft delete', () => {
     });
     expect(badController.status).toBe(400);
 
-    await as(rector).post(api(`/projects/${publicId}/issues`), { title: 'Обычная задача', state_id: stateTodo });
-    const onlyAssignments = await as(rector).get(api(`/projects/${publicId}/issues?kind=assignment`));
+    await as(rector).post(api(`/projects/${publicId}/issues`), {
+      title: 'Обычная задача',
+      state_id: stateTodo,
+    });
+    const onlyAssignments = await as(rector).get(
+      api(`/projects/${publicId}/issues?kind=assignment`),
+    );
     expect(onlyAssignments.body.data).toHaveLength(1);
-    const controlled = await as(rector).get(api(`/projects/${publicId}/issues?controller=${rector.id}`));
+    const controlled = await as(rector).get(
+      api(`/projects/${publicId}/issues?controller=${rector.id}`),
+    );
     expect(controlled.body.data).toHaveLength(1);
   });
 
@@ -297,7 +320,10 @@ describe('projects: fields, private visibility, soft delete', () => {
 
 describe('media: avatars and logos', () => {
   it('issues an avatar upload slot with a stable public url', async () => {
-    const res = await as(staff).post('/api/v1/auth/me/avatar', { mime_type: 'image/png', size: 1024 });
+    const res = await as(staff).post('/api/v1/auth/me/avatar', {
+      mime_type: 'image/png',
+      size: 1024,
+    });
     expect(res.status).toBe(200);
     expect(res.body.url).toMatch(/\/api\/v1\/files\/avatars\//);
     expect(res.body.upload.method).toBe('PUT');
@@ -308,12 +334,20 @@ describe('media: avatars and logos', () => {
   });
 
   it('rejects non-images and oversize files; logo upload is admin-only', async () => {
-    const pdf = await as(staff).post('/api/v1/auth/me/avatar', { mime_type: 'application/pdf', size: 10 });
+    const pdf = await as(staff).post('/api/v1/auth/me/avatar', {
+      mime_type: 'application/pdf',
+      size: 10,
+    });
     expect(pdf.status).toBe(400);
-    const big = await as(staff).post('/api/v1/auth/me/avatar', { mime_type: 'image/png', size: 50_000_000 });
+    const big = await as(staff).post('/api/v1/auth/me/avatar', {
+      mime_type: 'image/png',
+      size: 50_000_000,
+    });
     expect(big.status).toBe(400);
 
-    expect((await as(staff).post(api('/logo'), { mime_type: 'image/png', size: 10 })).status).toBe(403);
+    expect((await as(staff).post(api('/logo'), { mime_type: 'image/png', size: 10 })).status).toBe(
+      403,
+    );
     const ok = await as(rector).post(api('/logo'), { mime_type: 'image/webp', size: 10 });
     expect(ok.status).toBe(200);
     expect(ok.body.url).toMatch(/\/api\/v1\/files\/logos\//);

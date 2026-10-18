@@ -109,11 +109,16 @@ export async function verifyOtp(
     orderBy: { created_at: 'desc' },
   });
 
-  if (!otp) throw new AppError(400, 'OTP_NOT_FOUND', 'No active verification code. Request a new one.');
+  if (!otp)
+    throw new AppError(400, 'OTP_NOT_FOUND', 'No active verification code. Request a new one.');
 
   if (otp.expires_at < new Date()) {
     await prisma.emailOtp.update({ where: { id: otp.id }, data: { consumed_at: new Date() } });
-    throw new AppError(400, 'OTP_EXPIRED', 'This verification code has expired. Request a new one.');
+    throw new AppError(
+      400,
+      'OTP_EXPIRED',
+      'This verification code has expired. Request a new one.',
+    );
   }
 
   if (otp.attempts >= MAX_ATTEMPTS) {

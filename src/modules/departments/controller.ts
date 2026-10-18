@@ -51,6 +51,10 @@ export async function deleteDepartmentHandler(
   reply: FastifyReply,
 ): Promise<void> {
   const { departmentId } = request.params as { departmentId: string };
-  await departmentService.deleteDepartment(request.server.prisma, request.workspace.id, departmentId);
+  await departmentService.deleteDepartment(
+    request.server.prisma,
+    request.workspace.id,
+    departmentId,
+  );
   reply.code(204).send();
 }

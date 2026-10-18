@@ -190,7 +190,12 @@ export function buildWhere(
   }
   if (query.due_within !== undefined) {
     and.push(
-      { due_date: { gte: startToday, lt: startOfLocalDay(addDays(today, query.due_within + 1), tz) } },
+      {
+        due_date: {
+          gte: startToday,
+          lt: startOfLocalDay(addDays(today, query.due_within + 1), tz),
+        },
+      },
       { state: { group: { in: OPEN_GROUPS } } },
     );
   }
@@ -212,7 +217,9 @@ export function buildWhere(
   }
   if (query.reviewer !== undefined) {
     const reviewer = me(query.reviewer);
-    and.push({ OR: [{ controller_id: reviewer }, { controller_id: null, created_by_id: reviewer }] });
+    and.push({
+      OR: [{ controller_id: reviewer }, { controller_id: null, created_by_id: reviewer }],
+    });
   }
   if (stateGroups) and.push({ state: { group: { in: stateGroups } } });
 
@@ -309,7 +316,10 @@ export async function listWorkspaceIssues(
   workspace: { id: string; timezone: string },
   member: WorkspaceMember,
   query: WorkspaceIssueQuery,
-): Promise<{ data: (IssueWithRelations & { project: { id: string } })[]; next_cursor: string | null }> {
+): Promise<{
+  data: (IssueWithRelations & { project: { id: string } })[];
+  next_cursor: string | null;
+}> {
   const viewer = { userId: member.user_id, timeZone: workspace.timezone };
   const projects = normalizeArrayParam(query.project);
   const departments = normalizeArrayParam(query.department);
@@ -577,110 +587,118 @@ export async function updateIssue(
       })()
     : undefined;
 
-  const events: { kind: 'review_requested' | 'review_approved' | 'review_returned'; recipients: string[] }[] = [];
+  const events: {
+    kind: 'review_requested' | 'review_approved' | 'review_returned';
+    recipients: string[];
+  }[] = [];
 
-  return prisma.$transaction(async (tx) => {
-    if (body.primary_assignee_id) {
-      await tx.issueAssignee.updateMany({
-        where: { issue_id: issueId },
-        data: { is_primary: false },
-      });
-      await tx.issueAssignee.update({
-        where: { issue_id_user_id: { issue_id: issueId, user_id: body.primary_assignee_id } },
-        data: { is_primary: true },
-      });
-    }
-
-    const after = await tx.issue.update({
-      where: { id: issueId },
-      data: {
-        ...(body.title !== undefined && { title: body.title }),
-        ...(body.description !== undefined && { description: body.description }),
-        ...(body.state_id !== undefined && { state_id: body.state_id }),
-        ...(body.priority !== undefined && { priority: body.priority }),
-        ...(body.parent_id !== undefined && { parent_id: body.parent_id }),
-        ...(body.start_date !== undefined && {
-          start_date: body.start_date ? new Date(body.start_date) : null,
-        }),
-        ...(body.due_date !== undefined && {
-          due_date: body.due_date ? new Date(body.due_date) : null,
-        }),
-        ...(body.estimate_points !== undefined && { estimate_points: body.estimate_points }),
-        ...(body.sort_order !== undefined && { sort_order: body.sort_order }),
-        ...(body.kind !== undefined && { kind: body.kind }),
-        ...(body.controller_id !== undefined && { controller_id: body.controller_id }),
-        ...(body.requires_review !== undefined && { requires_review: body.requires_review }),
-        ...(body.basis !== undefined && { basis: body.basis }),
-        ...(completedAt !== undefined && { completed_at: completedAt }),
-      },
-      include: INCLUDE_RELATIONS,
-    });
-
-    // Record one activity row per scalar field that actually changed.
-    const changes = TRACKED_FIELDS.flatMap((field) => {
-      const oldValue = activityValue(before[field]);
-      const newValue = activityValue(after[field]);
-      if (oldValue === newValue) return [];
-      return [
-        {
-          workspace_id: workspaceId,
-          issue_id: issueId,
-          actor_id: actorId,
-          action: ACTIVITY_ACTIONS.ISSUE_UPDATED,
-          field,
-          old_value: oldValue,
-          new_value: newValue,
-        },
-      ];
-    });
-    await recordActivities(tx, changes);
-    // A reorder (sort_order) leaves no activity row, but other boards must follow it.
-    if (changes.length === 0) {
-      await publish(tx, { t: 'issue.updated', w: workspaceId, a: actorId, i: issueId });
-    }
-
-    // State transitions drive the review cycle, so dragging a card behaves like
-    // the explicit review buttons (5.B2): → review opens a hand-in; leaving review
-    // approves (→ completed) or returns (anything else) the pending one.
-    const assigneeIds = after.assignees.map((a) => a.user_id);
-    if (toGroup && toGroup !== fromGroup) {
-      if (toGroup === 'review') {
-        await openReview(tx, after, actorId, null);
-        events.push({ kind: 'review_requested', recipients: [after.controller_id ?? after.created_by_id] });
-      } else if (fromGroup === 'review') {
-        const decision = toGroup === 'completed' ? 'approved' : 'returned';
-        const closed = await closePendingReview(tx, after, decision, actorId, null, assigneeIds);
-        if (closed) {
-          events.push({
-            kind: decision === 'approved' ? 'review_approved' : 'review_returned',
-            recipients: assigneeIds,
-          });
-        }
+  return prisma
+    .$transaction(async (tx) => {
+      if (body.primary_assignee_id) {
+        await tx.issueAssignee.updateMany({
+          where: { issue_id: issueId },
+          data: { is_primary: false },
+        });
+        await tx.issueAssignee.update({
+          where: { issue_id_user_id: { issue_id: issueId, user_id: body.primary_assignee_id } },
+          data: { is_primary: true },
+        });
       }
-      // Watchers hear about every state change (minus whoever just got a more
-      // specific review notification for it).
-      const notified = new Set(events.flatMap((e) => e.recipients));
-      await notify(tx, {
-        workspace_id: workspaceId,
-        actor_id: actorId,
-        type: 'state_changed',
-        recipient_ids: (await watcherIds(tx, issueId)).filter((id) => !notified.has(id)),
-        issue_id: issueId,
-      });
-    }
 
-    return after;
-  }).then(async (after) => {
-    for (const e of events) {
-      await deliverIssueEvent(prisma, {
-        issueId,
-        kind: e.kind,
-        recipientIds: e.recipients,
-        actorId,
+      const after = await tx.issue.update({
+        where: { id: issueId },
+        data: {
+          ...(body.title !== undefined && { title: body.title }),
+          ...(body.description !== undefined && { description: body.description }),
+          ...(body.state_id !== undefined && { state_id: body.state_id }),
+          ...(body.priority !== undefined && { priority: body.priority }),
+          ...(body.parent_id !== undefined && { parent_id: body.parent_id }),
+          ...(body.start_date !== undefined && {
+            start_date: body.start_date ? new Date(body.start_date) : null,
+          }),
+          ...(body.due_date !== undefined && {
+            due_date: body.due_date ? new Date(body.due_date) : null,
+          }),
+          ...(body.estimate_points !== undefined && { estimate_points: body.estimate_points }),
+          ...(body.sort_order !== undefined && { sort_order: body.sort_order }),
+          ...(body.kind !== undefined && { kind: body.kind }),
+          ...(body.controller_id !== undefined && { controller_id: body.controller_id }),
+          ...(body.requires_review !== undefined && { requires_review: body.requires_review }),
+          ...(body.basis !== undefined && { basis: body.basis }),
+          ...(completedAt !== undefined && { completed_at: completedAt }),
+        },
+        include: INCLUDE_RELATIONS,
       });
-    }
-    return after;
-  });
+
+      // Record one activity row per scalar field that actually changed.
+      const changes = TRACKED_FIELDS.flatMap((field) => {
+        const oldValue = activityValue(before[field]);
+        const newValue = activityValue(after[field]);
+        if (oldValue === newValue) return [];
+        return [
+          {
+            workspace_id: workspaceId,
+            issue_id: issueId,
+            actor_id: actorId,
+            action: ACTIVITY_ACTIONS.ISSUE_UPDATED,
+            field,
+            old_value: oldValue,
+            new_value: newValue,
+          },
+        ];
+      });
+      await recordActivities(tx, changes);
+      // A reorder (sort_order) leaves no activity row, but other boards must follow it.
+      if (changes.length === 0) {
+        await publish(tx, { t: 'issue.updated', w: workspaceId, a: actorId, i: issueId });
+      }
+
+      // State transitions drive the review cycle, so dragging a card behaves like
+      // the explicit review buttons (5.B2): → review opens a hand-in; leaving review
+      // approves (→ completed) or returns (anything else) the pending one.
+      const assigneeIds = after.assignees.map((a) => a.user_id);
+      if (toGroup && toGroup !== fromGroup) {
+        if (toGroup === 'review') {
+          await openReview(tx, after, actorId, null);
+          events.push({
+            kind: 'review_requested',
+            recipients: [after.controller_id ?? after.created_by_id],
+          });
+        } else if (fromGroup === 'review') {
+          const decision = toGroup === 'completed' ? 'approved' : 'returned';
+          const closed = await closePendingReview(tx, after, decision, actorId, null, assigneeIds);
+          if (closed) {
+            events.push({
+              kind: decision === 'approved' ? 'review_approved' : 'review_returned',
+              recipients: assigneeIds,
+            });
+          }
+        }
+        // Watchers hear about every state change (minus whoever just got a more
+        // specific review notification for it).
+        const notified = new Set(events.flatMap((e) => e.recipients));
+        await notify(tx, {
+          workspace_id: workspaceId,
+          actor_id: actorId,
+          type: 'state_changed',
+          recipient_ids: (await watcherIds(tx, issueId)).filter((id) => !notified.has(id)),
+          issue_id: issueId,
+        });
+      }
+
+      return after;
+    })
+    .then(async (after) => {
+      for (const e of events) {
+        await deliverIssueEvent(prisma, {
+          issueId,
+          kind: e.kind,
+          recipientIds: e.recipients,
+          actorId,
+        });
+      }
+      return after;
+    });
 }
 
 export async function deleteIssue(
