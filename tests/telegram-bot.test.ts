@@ -387,6 +387,32 @@ describe('Telegram bot: who may see a card', () => {
   });
 });
 
+describe('Telegram bot: a guest only reads (12.B4)', () => {
+  it('the card has no action buttons and a tap on an old button is refused', async () => {
+    const issue = await createIssue(project, { title: 'Для гостя', assignee_ids: [dean.id] });
+    const setRole = (role: 'guest' | 'member') =>
+      app.prisma.workspaceMember.updateMany({
+        where: { user_id: clerk.id, workspace: { slug: SLUG } },
+        data: { role },
+      });
+    await setRole('guest');
+    try {
+      calls = [];
+      await tap(TG.clerk, `c:${issue.id}`).expect(200);
+      const card = [...edits(), ...sent(TG.clerk)].at(-1)!;
+      expect(String(card.body.text)).toContain('Для гостя');
+      expect(callbackData(card).filter((d) => d?.startsWith('a:'))).toEqual([]);
+
+      calls = [];
+      await tap(TG.clerk, `a:cmt:${issue.id}`).expect(200);
+      expect(answers()[0]!.body.text).toContain('Гость');
+      expect(sent(TG.clerk)).toHaveLength(0); // no «write your comment» question
+    } finally {
+      await setRole('member');
+    }
+  });
+});
+
 describe('Telegram bot: a report with files (9.T5)', () => {
   const staged = (chat: number) =>
     app.prisma.telegramPendingFile.count({ where: { chat_id: String(chat) } });

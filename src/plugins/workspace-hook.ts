@@ -19,6 +19,25 @@ const ROLE_RANK: Record<WorkspaceRole, number> = {
   owner: 3,
 };
 
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * Writes a guest may still make (Ф12 12.B4): their own inbox, following a task,
+ * leaving the workspace. Matched against the route pattern, not the raw URL.
+ */
+const GUEST_WRITES: RegExp[] = [
+  /\/notifications(\/|$)/,
+  /\/issues\/:issueId\/watchers(\/me)?$/,
+  /^\/api\/v1\/workspaces\/:workspaceSlug\/leave$/,
+];
+
+/** The guest role is read-only (docs/PERMISSIONS.md). */
+export function assertCanWrite(role: WorkspaceRole): void {
+  if (role === 'guest') {
+    throw new AppError(403, 'GUEST_READ_ONLY', 'Guests have read-only access to this workspace');
+  }
+}
+
 /**
  * preHandler factory: resolve workspace by slug, verify the authenticated user
  * is a member, and optionally enforce a minimum role.
@@ -48,6 +67,13 @@ export function requireWorkspaceMember(
       where: { workspace_id_user_id: { workspace_id: workspace.id, user_id: request.userId } },
     });
     if (!member) throw AppError.forbidden('You are not a member of this workspace');
+
+    // Guests read; every write except the personal ones above is refused here,
+    // in one place for all modules (12.B4).
+    const route = request.routeOptions.url ?? '';
+    if (!READ_METHODS.has(request.method) && !GUEST_WRITES.some((re) => re.test(route))) {
+      assertCanWrite(member.role);
+    }
 
     if (ROLE_RANK[member.role] < ROLE_RANK[minRole]) {
       throw AppError.forbidden(

@@ -27,7 +27,7 @@ import { pluralize } from '../../lib/plural.js';
 import type { StorageDriver } from '../../lib/storage.js';
 import { issueUrl } from '../../lib/urls.js';
 import { addDays, localDate, startOfLocalDay } from '../../lib/tz.js';
-import { seesAllProjects } from '../../plugins/workspace-hook.js';
+import { assertCanWrite, seesAllProjects } from '../../plugins/workspace-hook.js';
 import { visibleIssuesWhere } from '../issues/scope.js';
 import * as issueService from '../issues/service.js';
 import * as controlService from '../control/service.js';
@@ -248,6 +248,18 @@ async function loadCard(prisma: PrismaClient, userId: string, issueId: string) {
 type Loaded = NonNullable<Awaited<ReturnType<typeof loadCard>>>;
 
 function rightsOf({ issue, member }: Loaded, userId: string): CardRights {
+  // A guest only reads (12.B4): the card shows no action buttons.
+  if (member.role === 'guest') {
+    return {
+      acknowledge: false,
+      submit: false,
+      complete: false,
+      decide: false,
+      decideDeadline: false,
+      requestDeadline: false,
+      comment: false,
+    };
+  }
   const group = issue.state.group;
   const open = (OPEN_GROUPS as string[]).includes(group);
   const mine = issue.assignees.find((a) => a.user_id === userId);
@@ -267,6 +279,7 @@ function rightsOf({ issue, member }: Loaded, userId: string): CardRights {
       issue.due_date &&
       issue.deadline_requests.length === 0,
     ),
+    comment: true,
   };
 }
 
@@ -354,6 +367,7 @@ async function perform(
   verb: ActionVerb | Exclude<InputAction, 'submit'>,
   text?: string,
 ): Promise<string> {
+  assertCanWrite(loaded.member.role);
   const ctx = ctxOf(loaded, userId);
   const at = formatTime(new Date(), loaded.issue.workspace.timezone);
   switch (verb) {
@@ -784,6 +798,10 @@ export async function handleBotCallback(
     const loaded = VERBS.has(verb) && issueId ? await loadCard(prisma, user.id, issueId) : null;
     if (!loaded) {
       await answerCallbackQuery(cq.id, 'Задача не найдена или недоступна.', true);
+      return;
+    }
+    if (loaded.member.role === 'guest') {
+      await answerCallbackQuery(cq.id, errorText('GUEST_READ_ONLY'), true);
       return;
     }
     if (verb === 'due' && !rightsOf(loaded, user.id).requestDeadline) {

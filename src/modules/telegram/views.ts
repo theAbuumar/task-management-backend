@@ -204,6 +204,8 @@ export interface CardRights {
   decide: boolean;
   decideDeadline: boolean;
   requestDeadline: boolean;
+  /** Everyone but a guest (read-only, 12.B4). */
+  comment: boolean;
 }
 
 export function cardMessage(
@@ -282,7 +284,7 @@ export function cardMessage(
   if (rights.requestDeadline)
     buttons.push([{ text: '📅 Перенести срок', callback_data: act('due') }]);
   buttons.push([
-    { text: '💬 Комментарий', callback_data: act('cmt') },
+    ...(rights.comment ? [{ text: '💬 Комментарий', callback_data: act('cmt') }] : []),
     { text: '🔄 Обновить', callback_data: `${CB.card}${issue.id}` },
   ]);
   if (canLinkButtons()) buttons.push([{ text: '🌐 Открыть на сайте', url: issue.url }]);
@@ -444,6 +446,8 @@ export function parseDeadlineInput(
 /** Russian text for the error codes a bot action can hit. */
 export function errorText(code: string | undefined): string {
   switch (code) {
+    case 'GUEST_READ_ONLY':
+      return 'У вас роль «Гость» — задачи можно только просматривать.';
     case 'NOT_ASSIGNEE':
       return 'Это может сделать только исполнитель.';
     case 'NOT_REVIEWER':

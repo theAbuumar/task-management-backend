@@ -46,7 +46,9 @@ export type ErrorCode =
   | 'REALTIME_UNAVAILABLE'
   | 'TELEGRAM_NOT_CONFIRMED'
   | 'CONTROL_CHANGE_FORBIDDEN'
-  | 'INVALID_IMAGE';
+  | 'INVALID_IMAGE'
+  | 'GUEST_READ_ONLY'
+  | 'GUEST_NOT_ASSIGNABLE';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -95,6 +97,9 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
     'The Telegram link is not confirmed in the bot (details.status: pending — keep polling; expired or used — start again)',
   INVALID_IMAGE:
     'An avatar or logo must be uploaded through its upload slot and be a png, jpeg or webp image up to 2 MB',
+  GUEST_READ_ONLY:
+    'A guest has read-only access to the workspace (they may still manage their own notifications, follow tasks and leave)',
+  GUEST_NOT_ASSIGNABLE: 'A guest cannot be made an assignee or the controller of a task',
 };
 
 /**

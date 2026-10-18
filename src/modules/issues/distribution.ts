@@ -40,6 +40,9 @@ export async function distributeIssue(
       where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: body.controller_id } },
     });
     if (!member) throw AppError.badRequest('controller_id must be a member of this workspace');
+    if (member.role === 'guest') {
+      throw new AppError(400, 'GUEST_NOT_ASSIGNABLE', 'controller_id: a guest cannot be assigned');
+    }
   }
   if (body.label_ids?.length) {
     const labels = await prisma.label.count({
@@ -65,7 +68,7 @@ export async function distributeIssue(
       workspace_id: workspaceId,
       user_id: { in: departments.flatMap((d) => (d.head_id ? [d.head_id] : [])) },
     },
-    select: { user_id: true },
+    select: { user_id: true, role: true },
   });
   const headIds = new Set(heads.map((h) => h.user_id));
   const headless = departments.filter((d) => !d.head_id || !headIds.has(d.head_id));
@@ -75,6 +78,17 @@ export async function distributeIssue(
       'DEPARTMENT_HAS_NO_HEAD',
       `No head to assign the distribution to: ${headless.map((d) => d.name).join(', ')}`,
       { departments: headless.map((d) => ({ id: d.id, name: d.name })) },
+    );
+  }
+  // A guest head is read-only (12.B4) and cannot receive the assignment.
+  const guestHeads = new Set(heads.filter((h) => h.role === 'guest').map((h) => h.user_id));
+  const guestLed = departments.filter((d) => guestHeads.has(d.head_id!));
+  if (guestLed.length > 0) {
+    throw new AppError(
+      400,
+      'GUEST_NOT_ASSIGNABLE',
+      `The head is a guest and cannot be assigned: ${guestLed.map((d) => d.name).join(', ')}`,
+      { departments: guestLed.map((d) => ({ id: d.id, name: d.name })) },
     );
   }
 

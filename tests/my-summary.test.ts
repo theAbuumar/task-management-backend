@@ -21,7 +21,7 @@ const emails = {
 };
 
 type Actor = { id: string; token: string };
-type Summary = Record<
+type Summary = { role: string } & Record<
   | 'assigned'
   | 'overdue'
   | 'due_today'
@@ -118,8 +118,10 @@ describe('GET /me/summary', () => {
     expect(res.status).toBe(403);
   });
 
-  it('starts at zero for a new member', async () => {
+  it('starts at zero for a new member and reports the role', async () => {
     const s = await summary(dean);
+    expect(s.role).toBe('member');
+    expect((await summary(rector)).role).toBe('owner');
     expect(s.assigned).toBe(0);
     expect(s.control).toBe(0);
     expect(s.review_pending).toBe(0);

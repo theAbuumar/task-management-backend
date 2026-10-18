@@ -9,15 +9,18 @@
 //     of an assignment without one (ADR-008);
 //   - review_pending — issues in a `review` state that I decide on (reviewersOf);
 //   - watching — open issues I follow (5.B7);
-//   - unread_notifications — my unread inbox in this workspace.
+//   - unread_notifications — my unread inbox in this workspace;
+//   - role — my access role, so the client can hide what a guest cannot do.
 // Private projects I cannot see and deleted projects/issues are never counted.
 
-import type { Prisma, PrismaClient, WorkspaceMember } from '@prisma/client';
+import type { Prisma, PrismaClient, WorkspaceMember, WorkspaceRole } from '@prisma/client';
 import { seesAllProjects } from '../../plugins/workspace-hook.js';
 import { addDays, localDate, startOfLocalDay } from '../../lib/tz.js';
 import { OPEN_GROUPS } from './rules.js';
 
 export interface MySummary {
+  /** My access role here — the client hides what it does not allow (docs/PERMISSIONS.md). */
+  role: WorkspaceRole;
   assigned: number;
   overdue: number;
   due_today: number;
@@ -89,6 +92,7 @@ export async function mySummary(
   ]);
 
   return {
+    role: member.role,
     assigned: assignedN,
     overdue: overdueN,
     due_today: dueTodayN,

@@ -97,17 +97,28 @@ export const INCLUDE_RELATIONS = {
   },
 } satisfies Prisma.IssueInclude;
 
-/** The controller of an assignment must be a member of the workspace. */
-async function assertWorkspaceMember(
+/**
+ * The controller and the assignees must be members of the workspace who can act
+ * on the task — a guest is read-only (12.B4), so they cannot be assigned.
+ */
+async function assertAssignable(
   prisma: PrismaClient,
   workspaceId: string,
-  userId: string,
+  userIds: string[],
   field: string,
 ): Promise<void> {
-  const member = await prisma.workspaceMember.findUnique({
-    where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: userId } },
+  const ids = [...new Set(userIds)];
+  if (ids.length === 0) return;
+  const members = await prisma.workspaceMember.findMany({
+    where: { workspace_id: workspaceId, user_id: { in: ids } },
+    select: { role: true },
   });
-  if (!member) throw AppError.badRequest(`${field} must be a member of this workspace`);
+  if (members.length !== ids.length) {
+    throw AppError.badRequest(`${field} must be a member of this workspace`);
+  }
+  if (members.some((m) => m.role === 'guest')) {
+    throw new AppError(400, 'GUEST_NOT_ASSIGNABLE', `${field}: a guest cannot be assigned`);
+  }
 }
 
 async function resolveProject(
@@ -401,9 +412,10 @@ export async function createIssue(
   }
 
   if (body.controller_id) {
-    await assertWorkspaceMember(prisma, workspaceId, body.controller_id, 'controller_id');
+    await assertAssignable(prisma, workspaceId, [body.controller_id], 'controller_id');
   }
   const assigneeIds = [...new Set(body.assignee_ids ?? [])];
+  await assertAssignable(prisma, workspaceId, assigneeIds, 'assignee_ids');
   if (body.primary_assignee_id && !assigneeIds.includes(body.primary_assignee_id)) {
     throw AppError.badRequest('primary_assignee_id must be one of assignee_ids');
   }
@@ -527,7 +539,7 @@ export async function updateIssue(
   }
 
   if (body.controller_id) {
-    await assertWorkspaceMember(prisma, workspaceId, body.controller_id, 'controller_id');
+    await assertAssignable(prisma, workspaceId, [body.controller_id], 'controller_id');
   }
 
   // ─── Execution control (Ф5) ───
@@ -753,6 +765,7 @@ export async function addAssignee(
 ): Promise<IssueWithRelations> {
   await resolveProject(prisma, workspaceId, projectId);
   const issue = await resolveIssue(prisma, projectId, issueId);
+  await assertAssignable(prisma, workspaceId, [userId], 'user_id');
 
   const existing = await prisma.issueAssignee.findUnique({
     where: { issue_id_user_id: { issue_id: issueId, user_id: userId } },
