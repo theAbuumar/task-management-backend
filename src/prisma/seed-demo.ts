@@ -40,7 +40,8 @@ seedDemo(prisma, {
         `${pluralize(r.issues, ['задача', 'задачи', 'задач'])}, ` +
         `${pluralize(r.attachments, ['файл', 'файла', 'файлов'])}, ` +
         `${pluralize(r.notifications, ['уведомление', 'уведомления', 'уведомлений'])}, ` +
-        `${pluralize(r.audit, ['запись', 'записи', 'записей'])} журнала аудита.\n` +
+        `${pluralize(r.audit, ['запись', 'записи', 'записей'])} журнала аудита, ` +
+        `${pluralize(r.sessions, ['активная сессия', 'активные сессии', 'активных сессий'])}.\n` +
         `  Вход: DEMO_MODE=true → кнопки быстрого входа (${quickLogin.join(', ')}).` +
         (telegram ? `\n${telegram}` : ''),
     );

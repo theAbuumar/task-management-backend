@@ -22,6 +22,7 @@ export type ErrorCode =
   | 'INVALID_CREDENTIALS'
   | 'EMAIL_NOT_VERIFIED'
   | 'ACCOUNT_DEACTIVATED'
+  | 'SESSION_REVOKED'
   | 'NO_PASSWORD'
   | 'OTP_NOT_FOUND'
   | 'OTP_INVALID'
@@ -67,6 +68,8 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
   INVALID_CREDENTIALS: 'Wrong email or password',
   EMAIL_NOT_VERIFIED: 'The email address has not been confirmed yet',
   ACCOUNT_DEACTIVATED: 'The account is deactivated',
+  SESSION_REVOKED:
+    'The sign-in session was ended (signed out on another device or by an admin) — sign in again',
   NO_PASSWORD: 'The account has no password — sign in another way',
   OTP_NOT_FOUND: 'No active verification code — request a new one',
   OTP_INVALID: 'The verification code is wrong',

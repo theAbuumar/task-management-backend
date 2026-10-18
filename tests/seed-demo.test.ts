@@ -234,6 +234,24 @@ describe('demo seed (13.B1)', () => {
     expect(duplicate?.deleted_at).not.toBeNull();
   });
 
+  it('people have live sessions on a computer and a phone for «Мои сессии»', async () => {
+    const live = await prisma.authSession.findMany({
+      where: { user: { email: { endsWith: '@demo.local' } }, revoked_at: null },
+    });
+    expect(live.length).toBe(seeded.sessions);
+    expect(live.length).toBeGreaterThan(10);
+    for (const s of live) {
+      expect(s.method && s.ip && s.user_agent).toBeTruthy();
+      expect(s.created_at.getTime()).toBeLessThanOrEqual(s.last_used_at.getTime());
+      expect(s.last_used_at.getTime()).toBeLessThan(NOW);
+      expect(s.expires_at.getTime()).toBeGreaterThan(NOW);
+    }
+    // At most one per device kind and person.
+    const perUser = new Map<string, number>();
+    for (const s of live) perUser.set(s.user_id, (perUser.get(s.user_id) ?? 0) + 1);
+    expect(Math.max(...perUser.values())).toBeLessThanOrEqual(2);
+  });
+
   it('links the presenter’s Telegram to the chosen demo account', async () => {
     expect(seeded.telegram).toBe('linked');
     const identity = await prisma.authIdentity.findUnique({

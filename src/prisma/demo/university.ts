@@ -689,6 +689,9 @@ function scenarioFor(reliability: number, projectCompleted: boolean): Scenario {
 
 const PRIORITIES: IssuePriority[] = ['none', 'low', 'medium', 'medium', 'high', 'high', 'urgent'];
 
+/** Refresh-token lifetime (JWT_REFRESH_TTL default): a session lives this long after its last use. */
+const SESSION_DAYS = 30;
+
 const DESKTOP_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0',
@@ -722,6 +725,7 @@ export interface SeedDemoResult {
   attachments: number;
   notifications: number;
   audit: number;
+  sessions: number;
   /** linked — Telegram linked; taken — that Telegram belongs to another account; off — not asked. */
   telegram: 'linked' | 'taken' | 'off';
 }
@@ -2069,6 +2073,38 @@ export async function seedDemo(
   }
   await prisma.auditLog.createMany({ data: audit });
 
+  // «Мои сессии» (12.B2): each person's latest sign-in on a computer and on a phone
+  // that was not followed by a sign-out is still live — same device, IP and method
+  // as its audit entry, last used on a recent working day.
+  const sessions: Prisma.AuthSessionCreateManyInput[] = [];
+  const signIns = [...audit].sort((a, b) => +new Date(b.created_at!) - +new Date(a.created_at!));
+  for (const p of PEOPLE) {
+    const own = signIns.filter((e) => e.actor_id === uid(p.key));
+    for (const mobile of [false, true]) {
+      const agents = mobile ? MOBILE_AGENTS : DESKTOP_AGENTS;
+      const last = own.find(
+        (e) =>
+          (e.action === 'auth.login' || e.action === 'auth.logout') &&
+          agents.includes(e.user_agent!),
+      );
+      if (!last || last.action !== 'auth.login') continue;
+      const createdAt = new Date(last.created_at!);
+      const lastUsed = cap(
+        new Date(Math.max(createdAt.getTime(), NOW - between(1, mobile ? 30 : 6) * 3_600_000)),
+      );
+      sessions.push({
+        user_id: uid(p.key),
+        method: (last.meta as { method?: string } | undefined)?.method ?? null,
+        ip: last.ip,
+        user_agent: last.user_agent,
+        created_at: createdAt,
+        last_used_at: lastUsed,
+        expires_at: plusDays(lastUsed, SESSION_DAYS),
+      });
+    }
+  }
+  await prisma.authSession.createMany({ data: sessions });
+
   return {
     workspaceId: wsId,
     departments: DEPARTMENTS.length,
@@ -2078,6 +2114,7 @@ export async function seedDemo(
     attachments: attachmentCount,
     notifications: notifications.length,
     audit: audit.length,
+    sessions: sessions.length,
     telegram,
   };
 }

@@ -55,6 +55,8 @@ interface BufferedEvent {
 
 interface Subscriber {
   userId: string;
+  /** Sign-in session of the stream's access token (Ф12 12.B2), null for older tokens. */
+  sessionId: string | null;
   role: WorkspaceRole;
   workspaceId: string;
   raw: ServerResponse;
@@ -175,6 +177,21 @@ export class RealtimeHub {
       set.delete(sub);
       if (set.size === 0) this.subscribers.delete(sub.workspaceId);
     };
+  }
+
+  /**
+   * Close the user's streams opened with the given sessions — or all of them — when
+   * those sessions end (Ф12 12.B2) or the account is deactivated (12.B7). The client
+   * reconnects, and the auth hook turns it away.
+   */
+  disconnect(userId: string, sessionIds?: string[]): void {
+    for (const set of this.subscribers.values()) {
+      for (const s of set) {
+        if (s.userId !== userId) continue;
+        if (sessionIds && (!s.sessionId || !sessionIds.includes(s.sessionId))) continue;
+        s.raw.end();
+      }
+    }
   }
 
   /** Number of open streams (tests, diagnostics). */

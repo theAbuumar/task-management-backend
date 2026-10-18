@@ -3,8 +3,9 @@
 //
 // Authorized like any workspace route (Bearer + membership); what each event may
 // reveal is filtered per subscriber in plugins/realtime.ts. The stream ends when
-// the access token expires, so a revoked session cannot keep listening: the
-// client refreshes its token and reconnects with `Last-Event-ID`.
+// the access token expires or its session is ended (Ф12 12.B2), so a revoked
+// session cannot keep listening: the client refreshes its token and reconnects
+// with `Last-Event-ID`.
 
 import type { FastifyInstance } from 'fastify';
 import { authenticate } from '../../plugins/auth-hook.js';
@@ -91,6 +92,7 @@ export async function eventRoutes(app: FastifyInstance): Promise<void> {
       const unsubscribe = await app.realtime.subscribe(
         {
           userId: request.userId,
+          sessionId: request.sessionId,
           role: request.workspaceMember.role,
           workspaceId: request.workspace.id,
           raw,

@@ -1,7 +1,8 @@
 // Integration tests for the Ф1 stabilization pass (ROADMAP.md, docs/roadmap/phase-01):
 //   - 1.B1 links in invite emails point at the SPA (FRONTEND_URL), not the API host;
 //   - 1.B2 passwordless email sign-in (request code → verify → session);
-//   - 1.B3 refresh-token reuse detection revokes the whole session family;
+//   - 1.B3 refresh-token reuse detection revokes the session the token belongs to
+//     (since 12.B2 — other devices stay signed in, see sessions.test.ts);
 //   - 1.B6 leaving a workspace (owner cannot leave).
 //
 // Runs against a live Postgres. OTP codes and email bodies are read from the console
@@ -196,7 +197,7 @@ describe('1.B6 leave workspace + 1.B1 invite links', () => {
 });
 
 describe('1.B3 refresh-token reuse detection', () => {
-  it('replaying a rotated refresh token revokes every session of the user', async () => {
+  it('replaying a rotated refresh token revokes the whole session', async () => {
     const user = await register(emails.reuse);
 
     const first = await request(app.server)

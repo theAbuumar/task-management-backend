@@ -7,10 +7,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { config } from '../../config/index.js';
 import { AppError } from '../../lib/errors.js';
-import { setRefreshCookie } from '../../lib/session-cookie.js';
-import { auditLogin } from '../../lib/audit.js';
 import { DEMO_ROLE_EMAILS, type DemoTelegramRole } from '../../prisma/demo/university.js';
 import { loginDemoUser } from './service.js';
+import { beginSession } from './controller.js';
 
 export const DEMO_EMAIL_DOMAIN = '@demo.local';
 
@@ -94,8 +93,7 @@ export async function demoRoutes(app: FastifyInstance): Promise<void> {
         throw AppError.forbidden('Only demo accounts can use quick login');
       }
       const result = await loginDemoUser(app.prisma, email.toLowerCase());
-      await auditLogin(request, result.user.id, 'demo');
-      setRefreshCookie(reply, result.refresh_token);
+      await beginSession(request, reply, result, 'demo');
       return result;
     },
   );

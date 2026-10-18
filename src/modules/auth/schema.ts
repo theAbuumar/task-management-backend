@@ -192,6 +192,8 @@ export type GoogleCallbackQuery = z.infer<typeof GoogleCallbackQuerySchema>;
 export type GithubCallbackQuery = z.infer<typeof GithubCallbackQuerySchema>;
 export type TelegramStatusQuery = z.infer<typeof TelegramStatusQuerySchema>;
 export type LinkIdentityParams = z.infer<typeof LinkIdentityParamsSchema>;
+export const SessionParamsSchema = z.object({ id: z.string().uuid() });
+
 export type UnlinkIdentityParams = z.infer<typeof UnlinkIdentityParamsSchema>;
 export type LinkIdentityBody = z.infer<typeof LinkIdentityBodySchema>;
 
@@ -507,7 +509,7 @@ export const refreshRouteSchema: FastifySchema = {
   tags: ['Auth'],
   summary: 'Rotate the refresh token and issue a new access token',
   description:
-    'Reads the refresh token from the httpOnly cookie (browsers) or the request body (API/mobile clients). Sets a rotated refresh cookie on success.',
+    'Reads the refresh token from the httpOnly cookie (browsers) or the request body (API/mobile clients). Sets a rotated refresh cookie on success; the sign-in session stays the same. `401 SESSION_REVOKED` when the session was ended (another device, an admin), `401 UNAUTHORIZED` when the token is invalid, expired or already rotated.',
   body: {
     type: 'object',
     properties: {
@@ -521,9 +523,9 @@ export const refreshRouteSchema: FastifySchema = {
 
 export const logoutRouteSchema: FastifySchema = {
   tags: ['Auth'],
-  summary: 'Revoke the current refresh token',
+  summary: 'Sign out: end the session of the current refresh token',
   description:
-    'Revokes the refresh token from the httpOnly cookie (browsers) or the request body, and clears the refresh cookie.',
+    'Ends the sign-in session of the refresh token from the httpOnly cookie (browsers) or the request body — every token of that session is revoked and its access tokens stop working — and clears the refresh cookie.',
   body: {
     type: 'object',
     properties: {
@@ -698,4 +700,76 @@ export const updateMeRouteSchema: FastifySchema = {
     },
   },
   response: responses({ 200: userShape }),
+};
+
+// ─── Sign-in sessions (Ф12 12.B2) ───────────────────────────────────────────────
+
+const sessionShape = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    method: {
+      type: 'string',
+      nullable: true,
+      description:
+        'How the user signed in: `password`, `email_code`, `google`, `github`, `telegram`, `demo`. Null for sessions that existed before this field.',
+    },
+    browser: { type: 'string', nullable: true, description: 'e.g. «Chrome 128» (from User-Agent)' },
+    os: { type: 'string', nullable: true, description: 'e.g. «Windows», «iOS» (from User-Agent)' },
+    mobile: { type: 'boolean' },
+    ip: { type: 'string', nullable: true, description: 'Latest IP the session was used from' },
+    user_agent: { type: 'string', nullable: true },
+    created_at: { type: 'string', format: 'date-time', description: 'Sign-in time' },
+    last_used_at: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Last sign-in or token refresh (≈ every 15 minutes while the site is open)',
+    },
+    expires_at: { type: 'string', format: 'date-time' },
+    current: { type: 'boolean', description: 'The session of this request’s access token' },
+  },
+} as const;
+
+export const listSessionsRouteSchema: FastifySchema = {
+  tags: ['Auth'],
+  summary: 'List the account’s active sign-in sessions («Мои сессии»)',
+  description:
+    'One entry per sign-in on a device that has not signed out, been ended or expired: device, IP, sign-in method, sign-in and last activity time. The current session is first and marked `current: true`.',
+  security: [{ bearerAuth: [] }],
+  response: responses({
+    200: {
+      type: 'object',
+      properties: { data: { type: 'array', items: sessionShape } },
+    },
+  }),
+};
+
+export const revokeSessionRouteSchema: FastifySchema = {
+  tags: ['Auth'],
+  summary: 'End one of the account’s sessions',
+  description:
+    'Revokes the session and all its refresh tokens; its access tokens are refused from the next request (`401 SESSION_REVOKED`) and its live-update streams close. Ending the current session signs this device out and clears the refresh cookie. `404` for a session of another account or one already ended. Written to the audit log as `auth.session_revoked`.',
+  security: [{ bearerAuth: [] }],
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: { id: { type: 'string', format: 'uuid' } },
+  },
+  response: responses({
+    204: { type: 'null', description: 'Session ended' },
+  }),
+};
+
+export const revokeOtherSessionsRouteSchema: FastifySchema = {
+  tags: ['Auth'],
+  summary: 'Sign out on every other device',
+  description:
+    'Ends every session of the account except the current one (the device making the request stays signed in). Returns how many were ended. Written to the audit log as `auth.sessions_revoked`.',
+  security: [{ bearerAuth: [] }],
+  response: responses({
+    200: {
+      type: 'object',
+      properties: { revoked: { type: 'integer' } },
+    },
+  }),
 };

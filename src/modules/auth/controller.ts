@@ -23,6 +23,14 @@ import {
 import { frontendUrl } from '../../lib/urls.js';
 import { setTelegramSessionCookie, readTelegramSessionCookie } from '../../lib/telegram-session.js';
 import { generateSessionId } from './telegram-login.service.js';
+import {
+  listSessions,
+  recordSessionClient,
+  revokeOtherSessions,
+  revokeSession,
+  sessionIdOf,
+  type SessionClient,
+} from './sessions.service.js';
 import type { ProviderProfile } from './identity.service.js';
 import {
   RegisterBodySchema,
@@ -42,7 +50,29 @@ import {
   UnlinkIdentityParamsSchema,
   LinkIdentityBodySchema,
   LinkStartParamsSchema,
+  SessionParamsSchema,
 } from './schema.js';
+
+/** The device a request came from, as stored on its session (Ф12 12.B2). */
+function clientOf(request: FastifyRequest): SessionClient {
+  return { ip: request.ip ?? null, user_agent: request.headers['user-agent'] ?? null };
+}
+
+/**
+ * Every completed sign-in ends here: the new session learns its device and method,
+ * the audit log gets `auth.login`, the browser gets the refresh cookie.
+ */
+export async function beginSession(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  result: authService.AuthTokens,
+  method: string,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  await recordSessionClient(request.server.prisma, sessionIdOf(result), clientOf(request), method);
+  await auditLogin(request, result.user.id, method, extra);
+  setRefreshCookie(reply, result.refresh_token);
+}
 
 /** Frontend URL to bounce the browser to after a successful OAuth login. */
 function frontendSuccessUrl(accessToken: string): string {
@@ -148,16 +178,14 @@ async function finishLink(
 export async function registerHandler(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const body = RegisterBodySchema.parse(request.body);
   const result = await authService.register(request.server.prisma, body);
-  await auditLogin(request, result.user.id, 'password', { signup: true });
-  setRefreshCookie(reply, result.refresh_token);
+  await beginSession(request, reply, result, 'password', { signup: true });
   reply.code(201).send(result);
 }
 
 export async function loginHandler(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const body = LoginBodySchema.parse(request.body);
   const result = await authService.login(request.server.prisma, body);
-  await auditLogin(request, result.user.id, 'password');
-  setRefreshCookie(reply, result.refresh_token);
+  await beginSession(request, reply, result, 'password');
   reply.send(result);
 }
 
@@ -176,8 +204,7 @@ export async function emailVerifyHandler(
 ): Promise<void> {
   const body = EmailVerifyBodySchema.parse(request.body);
   const result = await authService.emailVerify(request.server.prisma, body);
-  await auditLogin(request, result.user.id, 'email_code', { signup: true });
-  setRefreshCookie(reply, result.refresh_token);
+  await beginSession(request, reply, result, 'email_code', { signup: true });
   reply.send(result);
 }
 
@@ -196,8 +223,7 @@ export async function emailOtpVerifyHandler(
 ): Promise<void> {
   const body = EmailOtpVerifyBodySchema.parse(request.body);
   const result = await authService.emailOtpVerify(request.server.prisma, body);
-  await auditLogin(request, result.user.id, 'email_code');
-  setRefreshCookie(reply, result.refresh_token);
+  await beginSession(request, reply, result, 'email_code');
   reply.send(result);
 }
 
@@ -244,8 +270,7 @@ export async function googleCallbackHandler(
     return;
   }
 
-  await auditLogin(request, result.user.id, 'google');
-  setRefreshCookie(reply, result.refresh_token);
+  await beginSession(request, reply, result, 'google');
   reply.redirect(frontendSuccessUrl(result.access_token));
 }
 
@@ -292,8 +317,7 @@ export async function githubCallbackHandler(
     return;
   }
 
-  await auditLogin(request, result.user.id, 'github');
-  setRefreshCookie(reply, result.refresh_token);
+  await beginSession(request, reply, result, 'github');
   reply.redirect(frontendSuccessUrl(result.access_token));
 }
 
@@ -337,8 +361,7 @@ export async function telegramStatusHandler(
   const sessionId = readTelegramSessionCookie(request.cookies);
   const result = await authService.telegramStatus(request.server.prisma, token, sessionId);
   if (result.status === 'authenticated') {
-    await auditLogin(request, result.user.id, 'telegram');
-    setRefreshCookie(reply, result.refresh_token);
+    await beginSession(request, reply, result, 'telegram');
   }
   reply.send(result);
 }
@@ -352,6 +375,7 @@ export async function refreshHandler(request: FastifyRequest, reply: FastifyRepl
   if (!token) throw AppError.unauthorized('No refresh token provided');
 
   const result = await authService.refresh(request.server.prisma, token);
+  await recordSessionClient(request.server.prisma, sessionIdOf(result), clientOf(request));
   setRefreshCookie(reply, result.refresh_token);
   reply.send(result);
 }
@@ -381,6 +405,62 @@ export async function logoutHandler(request: FastifyRequest, reply: FastifyReply
   }
   clearRefreshCookie(reply);
   reply.code(204).send();
+}
+
+// ─── Sign-in sessions (Ф12 12.B2) ───────────────────────────────────────────────
+// All three use the `authenticate` preHandler, so request.userId and sessionId are set.
+
+export async function listSessionsHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const data = await listSessions(request.server.prisma, request.userId, request.sessionId);
+  reply.send({ data });
+}
+
+export async function revokeSessionHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const { id } = SessionParamsSchema.parse(request.params);
+  await revokeSession(request.server.prisma, request.userId, id);
+  await writeAudit(
+    request.server.prisma,
+    {
+      actor_id: request.userId,
+      action: 'auth.session_revoked',
+      target_type: 'user',
+      target_id: request.userId,
+      meta: { session_id: id, current: id === request.sessionId },
+    },
+    request,
+  );
+  request.server.realtime.disconnect(request.userId, [id]);
+  // Ending the session you are using is signing out of it.
+  if (id === request.sessionId) clearRefreshCookie(reply);
+  reply.code(204).send();
+}
+
+export async function revokeOtherSessionsHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const ids = await revokeOtherSessions(request.server.prisma, request.userId, request.sessionId);
+  if (ids.length > 0) {
+    await writeAudit(
+      request.server.prisma,
+      {
+        actor_id: request.userId,
+        action: 'auth.sessions_revoked',
+        target_type: 'user',
+        target_id: request.userId,
+        meta: { count: ids.length },
+      },
+      request,
+    );
+    request.server.realtime.disconnect(request.userId, ids);
+  }
+  reply.send({ revoked: ids.length });
 }
 
 // ─── Connected-accounts management (auth_tz.md §10) ─────────────────────────────

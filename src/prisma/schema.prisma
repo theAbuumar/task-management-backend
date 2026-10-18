@@ -179,6 +179,7 @@ model User {
   watched_issues            IssueWatcher[]
   identities                AuthIdentity[]
   refresh_tokens            RefreshToken[]
+  sessions                  AuthSession[]
   workspace_memberships     WorkspaceMember[]
   project_memberships       ProjectMember[]
   owned_workspaces          Workspace[]             @relation("WorkspaceOwner")
@@ -197,17 +198,44 @@ model User {
 }
 
 // Rotating refresh tokens. One row per live token; revoked_at set on logout/rotation.
+// Every token of one sign-in shares a `session_id` (Ф12 12.B2); null only on tokens
+// issued before sessions existed.
 model RefreshToken {
   id         String    @id @default(uuid())
   user_id    String
+  session_id String?
   token_hash String    @unique
   expires_at DateTime
   revoked_at DateTime?
   created_at DateTime  @default(now())
 
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  session AuthSession? @relation(fields: [session_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
+  @@index([session_id])
+}
+
+// One sign-in on one device (Ф12 12.B2): lives from login through every refresh
+// rotation until logout, revocation or expiry. Access tokens carry its id (`sid`),
+// so revoking a session cuts the device off at its next request, not in 15 minutes.
+// `ip` and `user_agent` are the latest seen (updated on refresh).
+model AuthSession {
+  id           String    @id @default(uuid())
+  user_id      String
+  // How the user signed in: password, email_code, google, github, telegram, demo.
+  method       String?
+  ip           String?
+  user_agent   String?
+  created_at   DateTime  @default(now())
+  last_used_at DateTime  @default(now())
+  expires_at   DateTime
+  revoked_at   DateTime?
+
+  user           User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  refresh_tokens RefreshToken[]
+
+  @@index([user_id, revoked_at])
 }
 
 // A single login method bound to an account (auth_tz.md §2).

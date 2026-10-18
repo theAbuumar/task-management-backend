@@ -335,6 +335,7 @@ export async function confirmAccountDeletion(
 
     await tx.authIdentity.deleteMany({ where: { user_id: userId } });
     await tx.refreshToken.deleteMany({ where: { user_id: userId } });
+    await tx.authSession.deleteMany({ where: { user_id: userId } });
     // Drop any outstanding codes for this account, on either channel.
     await tx.emailOtp.deleteMany({
       where: { OR: [{ user_id: userId }, ...(user.email ? [{ email: user.email }] : [])] },
@@ -639,15 +640,33 @@ export async function refresh(prisma: PrismaClient, rawToken: string): Promise<A
     throw AppError.unauthorized('Invalid or expired refresh token');
   }
 
-  const stored = await prisma.refreshToken.findUnique({ where: { id: payload.jti } });
+  const stored = await prisma.refreshToken.findUnique({
+    where: { id: payload.jti },
+    include: { session: { select: { revoked_at: true } } },
+  });
+  // The session was ended (another device, an admin, a detected theft): say so, so
+  // the client can tell the user why they are signed out (Ф12 12.B2).
+  if (stored?.session?.revoked_at) {
+    throw new AppError(401, 'SESSION_REVOKED', 'This session has been ended');
+  }
   if (stored && stored.revoked_at !== null) {
-    // Reuse of an already-rotated token means it may have been stolen: revoke the
-    // user's whole session family. A short grace window tolerates two tabs racing
+    // Reuse of an already-rotated token means it may have been stolen: end the
+    // session it belongs to (Ф12 12.B2), or — for a token older than sessions — the
+    // user's whole token family. A short grace window tolerates two tabs racing
     // to refresh with the same cookie.
     if (Date.now() - stored.revoked_at.getTime() > REFRESH_REUSE_GRACE_MS) {
+      const now = new Date();
+      if (stored.session_id) {
+        await prisma.authSession.updateMany({
+          where: { id: stored.session_id, revoked_at: null },
+          data: { revoked_at: now },
+        });
+      }
       await prisma.refreshToken.updateMany({
-        where: { user_id: stored.user_id, revoked_at: null },
-        data: { revoked_at: new Date() },
+        where: stored.session_id
+          ? { session_id: stored.session_id, revoked_at: null }
+          : { user_id: stored.user_id, revoked_at: null },
+        data: { revoked_at: now },
       });
     }
     throw AppError.unauthorized('Refresh token has been revoked or expired');
@@ -661,10 +680,10 @@ export async function refresh(prisma: PrismaClient, rawToken: string): Promise<A
     throw new AppError(403, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated');
   }
 
-  // Rotate: revoke the old token record, then issue a fresh pair.
+  // Rotate: revoke the old token record, then issue a fresh pair in the same session.
   await prisma.refreshToken.update({ where: { id: stored.id }, data: { revoked_at: new Date() } });
 
-  return issueTokenPair(prisma, user);
+  return issueTokenPair(prisma, user, stored.session_id);
 }
 
 export async function logout(prisma: PrismaClient, rawToken: string): Promise<void> {
@@ -675,9 +694,23 @@ export async function logout(prisma: PrismaClient, rawToken: string): Promise<vo
     return; // Expired/invalid token — already effectively logged out.
   }
 
+  // Signing out ends the whole session, not just the presented token.
+  const token = await prisma.refreshToken.findUnique({
+    where: { id: jti },
+    select: { session_id: true },
+  });
+  const now = new Date();
+  if (token?.session_id) {
+    await prisma.authSession.updateMany({
+      where: { id: token.session_id, revoked_at: null },
+      data: { revoked_at: now },
+    });
+  }
   await prisma.refreshToken.updateMany({
-    where: { id: jti, revoked_at: null },
-    data: { revoked_at: new Date() },
+    where: token?.session_id
+      ? { session_id: token.session_id, revoked_at: null }
+      : { id: jti, revoked_at: null },
+    data: { revoked_at: now },
   });
 }
 
@@ -799,19 +832,36 @@ async function ensureEmailIdentity(
   });
 }
 
-async function issueTokenPair(prisma: PrismaClient, user: User): Promise<AuthTokens> {
+/**
+ * Mint an access + refresh pair. Without `sessionId` this is a sign-in and opens a
+ * new session (Ф12 12.B2; the controller records its device and method); with it,
+ * a refresh rotation that keeps the session and moves its expiry forward.
+ */
+async function issueTokenPair(
+  prisma: PrismaClient,
+  user: User,
+  sessionId?: string | null,
+): Promise<AuthTokens> {
+  const expires_at = ttlToDate(config.JWT_REFRESH_TTL);
+  const session = sessionId
+    ? await prisma.authSession.update({
+        where: { id: sessionId },
+        data: { last_used_at: new Date(), expires_at },
+      })
+    : await prisma.authSession.create({ data: { user_id: user.id, expires_at } });
   // Create the DB row first to obtain its `id`, which becomes the JWT `jti`.
   // The token_hash column is not used (we store the id in the JWT jti instead).
   const record = await prisma.refreshToken.create({
     data: {
       user_id: user.id,
+      session_id: session.id,
       token_hash: crypto.randomUUID(), // unique placeholder; real identity is the row id via jti
-      expires_at: ttlToDate(config.JWT_REFRESH_TTL),
+      expires_at,
     },
   });
 
   return {
-    access_token: signAccessToken(user.id),
+    access_token: signAccessToken(user.id, session.id),
     refresh_token: signRefreshToken(user.id, record.id),
     user: stripHash(user),
   };

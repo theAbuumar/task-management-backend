@@ -3,6 +3,7 @@ import { config } from '../config/index.js';
 
 export interface AccessTokenPayload {
   sub: string; // userId
+  sid?: string; // AuthSession.id — absent only on tokens minted before sessions (Ф12 12.B2)
 }
 
 export interface RefreshTokenPayload {
@@ -10,8 +11,9 @@ export interface RefreshTokenPayload {
   jti: string; // RefreshToken.id (DB row) — ties the JWT to a specific DB record
 }
 
-export function signAccessToken(userId: string): string {
-  return jwt.sign({ sub: userId } satisfies AccessTokenPayload, config.JWT_ACCESS_SECRET, {
+export function signAccessToken(userId: string, sessionId?: string): string {
+  const payload: AccessTokenPayload = { sub: userId, ...(sessionId && { sid: sessionId }) };
+  return jwt.sign(payload, config.JWT_ACCESS_SECRET, {
     expiresIn: config.JWT_ACCESS_TTL as jwt.SignOptions['expiresIn'],
   });
 }

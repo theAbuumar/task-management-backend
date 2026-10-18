@@ -25,6 +25,9 @@ import {
   linkIdentityRouteSchema,
   linkStartRouteSchema,
   unlinkIdentityRouteSchema,
+  listSessionsRouteSchema,
+  revokeSessionRouteSchema,
+  revokeOtherSessionsRouteSchema,
 } from './schema.js';
 import {
   registerHandler,
@@ -50,6 +53,9 @@ import {
   linkIdentityHandler,
   linkStartHandler,
   unlinkIdentityHandler,
+  listSessionsHandler,
+  revokeSessionHandler,
+  revokeOtherSessionsHandler,
 } from './controller.js';
 
 // Per-IP rate limit for the sensitive auth endpoints — credential submission and
@@ -135,6 +141,22 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     '/identities/:provider',
     { schema: unlinkIdentityRouteSchema, preHandler: [authenticate] },
     unlinkIdentityHandler,
+  );
+  // «Мои сессии» (Ф12 12.B2) — where the account is signed in; ending sessions.
+  app.get(
+    '/sessions',
+    { schema: listSessionsRouteSchema, preHandler: [authenticate] },
+    listSessionsHandler,
+  );
+  app.post(
+    '/sessions/revoke-all',
+    { schema: revokeOtherSessionsRouteSchema, preHandler: [authenticate], config: authRateLimit },
+    revokeOtherSessionsHandler,
+  );
+  app.delete(
+    '/sessions/:id',
+    { schema: revokeSessionRouteSchema, preHandler: [authenticate] },
+    revokeSessionHandler,
   );
   app.get('/me', { schema: getMeRouteSchema, preHandler: [authenticate] }, getMeHandler);
   app.patch('/me', { schema: updateMeRouteSchema, preHandler: [authenticate] }, updateMeHandler);

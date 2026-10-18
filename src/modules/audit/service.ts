@@ -2,8 +2,8 @@
 // and plugins/audit. Only admins and the owner read it (checked in the route by
 // requireWorkspaceMember('admin') and again here — services own authorization).
 //
-// A workspace's log = its own entries + sign-ins/sign-outs and linked/unlinked
-// login methods of its current members (those have no workspace). Names of actors and targets are resolved at
+// A workspace's log = its own entries + sign-ins/sign-outs, ended sessions and
+// linked/unlinked login methods of its current members (those have no workspace). Names of actors and targets are resolved at
 // read time; a deleted user keeps the name captured when the entry was written.
 
 import type { Prisma, PrismaClient, WorkspaceMember } from '@prisma/client';
@@ -11,7 +11,14 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 
 export const AUDIT_GROUPS = {
-  auth: ['auth.login', 'auth.logout', 'auth.identity_linked', 'auth.identity_unlinked'],
+  auth: [
+    'auth.login',
+    'auth.logout',
+    'auth.session_revoked',
+    'auth.sessions_revoked',
+    'auth.identity_linked',
+    'auth.identity_unlinked',
+  ],
   members: [
     'member.added',
     'member.updated',
