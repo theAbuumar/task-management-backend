@@ -176,6 +176,33 @@ describe('Notifications on task create/assign', () => {
     expect(sendMailMock).not.toHaveBeenCalled();
   });
 
+  it('an assignment (поручение) is announced as such, with «Ознакомлен» under it (ADR-021)', async () => {
+    sendMailMock.mockClear();
+    const fetchMock = telegramFetchMock();
+    vi.stubGlobal('fetch', fetchMock);
+    const res = await request(app.server)
+      .post(issuesUrl())
+      .set(...auth(ownerToken))
+      .send({
+        title: 'Представить план устранения замечаний',
+        state_id: stateId,
+        kind: 'assignment',
+        assignee_ids: [tgUserId],
+      });
+    vi.unstubAllGlobals();
+
+    expect(res.status).toBe(201);
+    const toTg = sentMessages(fetchMock).filter((m) => m.chat_id === TG_ID) as Array<{
+      text: string;
+      reply_markup?: { inline_keyboard: Array<Array<{ text: string }>> };
+    }>;
+    expect(toTg).toHaveLength(1);
+    expect(toTg[0]!.text).toContain('поручил(а) вам');
+    expect(toTg[0]!.text).not.toContain('задачу');
+    const buttons = toTg[0]!.reply_markup!.inline_keyboard.flat().map((b) => b.text);
+    expect(buttons).toContain('👁 Ознакомлен');
+  });
+
   it('creating a task with NO assignees messages every Telegram-linked project member', async () => {
     const fetchMock = telegramFetchMock();
     vi.stubGlobal('fetch', fetchMock);
@@ -238,6 +265,7 @@ describe('Notifications on task create/assign', () => {
     const toOwner = mail.find((m) => m.to === OWNER_EMAIL);
     expect(toOwner).toBeDefined();
     expect(toOwner!.subject).toContain('Email fallback task');
+    expect(toOwner!.subject).toContain('назначил(а) вам');
     const body = (
       sendMailMock.mock.calls.find((c) => (c[0] as { to: string }).to === OWNER_EMAIL)![0] as {
         text: string;

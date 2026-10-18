@@ -179,6 +179,13 @@ export const DEMO_TELEGRAM_ACCOUNTS = {
   employee: 'umu_spec',
 } as const;
 export type DemoTelegramRole = keyof typeof DEMO_TELEGRAM_ACCOUNTS;
+/** The same four roles are the quick-login buttons: role → account email. */
+export const DEMO_ROLE_EMAILS = Object.fromEntries(
+  Object.entries(DEMO_TELEGRAM_ACCOUNTS).map(([role, key]) => [
+    role,
+    emailOf(PEOPLE.find((p) => p.key === key)!),
+  ]),
+) as Record<DemoTelegramRole, string>;
 
 // ─── Projects and their work ──────────────────────────────────────────────────
 

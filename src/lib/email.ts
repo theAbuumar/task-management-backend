@@ -73,6 +73,8 @@ export interface IssueNotificationEmailPayload {
   actorName: string;
   /** true when assigned to the recipient; false for the "new task for everyone" broadcast. */
   assigned: boolean;
+  /** An assignment (поручение) is announced in its own words (ADR-021). */
+  kind?: 'task' | 'assignment';
   /** Deep link `FRONTEND_URL/w/:slug/browse/:key` (2.B2). */
   issueUrl: string;
 }
@@ -85,11 +87,14 @@ export interface IssueNotificationEmailPayload {
 export async function sendIssueNotificationEmail(
   payload: IssueNotificationEmailPayload,
 ): Promise<void> {
+  const assignment = payload.kind === 'assignment';
   const subject = payload.assigned
-    ? `${payload.actorName} назначил(а) вам ${payload.issueKey}: ${payload.issueTitle}`
+    ? `${payload.actorName} ${assignment ? 'поручил(а)' : 'назначил(а)'} вам ${payload.issueKey}: ${payload.issueTitle}`
     : `Новая задача в «${payload.projectName}» — ${payload.issueKey}: ${payload.issueTitle}`;
   const lead = payload.assigned
-    ? `${payload.actorName} назначил(а) вам задачу.`
+    ? assignment
+      ? `${payload.actorName} дал(а) вам поручение.`
+      : `${payload.actorName} назначил(а) вам задачу.`
     : `${payload.actorName} создал(а) задачу в проекте «${payload.projectName}».`;
   await sendMail({
     to: payload.to,

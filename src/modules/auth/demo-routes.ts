@@ -9,9 +9,29 @@ import { config } from '../../config/index.js';
 import { AppError } from '../../lib/errors.js';
 import { setRefreshCookie } from '../../lib/session-cookie.js';
 import { auditLogin } from '../../lib/audit.js';
+import { DEMO_ROLE_EMAILS, type DemoTelegramRole } from '../../prisma/demo/university.js';
 import { loginDemoUser } from './service.js';
 
 export const DEMO_EMAIL_DOMAIN = '@demo.local';
+
+/** The order the demo story is told in (and the quick-login buttons are shown). */
+const DEMO_ROLES: DemoTelegramRole[] = ['rector', 'prorector', 'dean', 'employee'];
+
+/**
+ * Tag the quick-login accounts with their role and put them first, in story
+ * order. The seed creates every account in one go, so `created_at` alone cannot
+ * tell the dean of ФЭУ (the one with the presenter's Telegram) from another dean.
+ */
+export function withDemoRoles<T extends { email: string | null }>(
+  users: T[],
+): (T & { demo_role: DemoTelegramRole | null })[] {
+  const roleOf = new Map(DEMO_ROLES.map((role) => [DEMO_ROLE_EMAILS[role], role]));
+  const rank = (role: DemoTelegramRole | null) =>
+    role ? DEMO_ROLES.indexOf(role) : DEMO_ROLES.length;
+  return users
+    .map((u) => ({ ...u, demo_role: (u.email && roleOf.get(u.email)) || null }))
+    .sort((a, b) => rank(a.demo_role) - rank(b.demo_role));
+}
 
 export async function demoRoutes(app: FastifyInstance): Promise<void> {
   const guard = async () => {
@@ -24,6 +44,8 @@ export async function demoRoutes(app: FastifyInstance): Promise<void> {
       schema: {
         tags: ['Auth'],
         summary: 'Demo accounts for quick login (DEMO_MODE only)',
+        description:
+          '`demo_role` (rector | prorector | dean | employee) marks the four quick-login accounts; they come first, in that order.',
       },
       preHandler: guard,
     },
@@ -40,13 +62,15 @@ export async function demoRoutes(app: FastifyInstance): Promise<void> {
         },
         orderBy: { created_at: 'asc' },
       });
-      return users.map((u) => ({
-        email: u.email,
-        display_name: u.display_name,
-        position: u.workspace_memberships[0]?.position ?? null,
-        role: u.workspace_memberships[0]?.role ?? null,
-        workspace: u.workspace_memberships[0]?.workspace.name ?? null,
-      }));
+      return withDemoRoles(
+        users.map((u) => ({
+          email: u.email,
+          display_name: u.display_name,
+          position: u.workspace_memberships[0]?.position ?? null,
+          role: u.workspace_memberships[0]?.role ?? null,
+          workspace: u.workspace_memberships[0]?.workspace.name ?? null,
+        })),
+      );
     },
   );
 

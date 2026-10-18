@@ -227,6 +227,8 @@ export interface IssueNotificationOptions {
    * false for the "task with no assignee" broadcast to every project member.
    */
   assigned: boolean;
+  /** An assignment (поручение) is announced in its own words (ADR-021). */
+  kind?: 'task' | 'assignment';
   /** Action buttons under the message (bot inside the backend, ADR-011). */
   buttons?: InlineButton[][];
 }
@@ -240,9 +242,11 @@ export async function sendIssueNotification(
   chatId: number,
   opts: IssueNotificationOptions,
 ): Promise<void> {
-  const headline = opts.assigned
-    ? `📋 ${opts.actorName} назначил(а) вам задачу`
-    : `🆕 ${opts.actorName} создал(а) задачу в проекте «${opts.projectName}»`;
+  const headline = !opts.assigned
+    ? `🆕 ${opts.actorName} создал(а) задачу в проекте «${opts.projectName}»`
+    : opts.kind === 'assignment'
+      ? `📌 ${opts.actorName} поручил(а) вам`
+      : `📋 ${opts.actorName} назначил(а) вам задачу`;
   await sendBotMessage(
     chatId,
     [headline, '', `${opts.issueKey}  ${opts.issueTitle}`, '', opts.issueUrl].join('\n'),

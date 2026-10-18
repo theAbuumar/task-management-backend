@@ -30,6 +30,29 @@
 
 ---
 
+## 2026-10-18 — 13.P5 Исправления по итогам репетиции показа: способы входа, демо-роли, «поручил(а) вам» в Telegram
+**Фаза:** Ф13 · **Тип:** исправление · **Ветка:** `claude/affectionate-wright-igm2y5`
+**Что изменено:**
+- **Способы входа стенда.** Новый публичный `GET /api/v1/auth/providers` сообщает, что реально настроено: код на email, Google, GitHub, Telegram, быстрый демо-вход. Раньше страница входа всегда показывала Google и GitHub. На стенде без OAuth они вели на JSON-ошибку, а код на почту без SMTP падал в production. Это нарушало правило «без пустых кнопок».
+  - `email` = настроен SMTP или Resend, а вне production — всегда (коды печатаются в консоль).
+  - OAuth-провайдер считается настроенным только при наличии id, секрета и callback; Telegram — при токене и имени бота.
+- **Кнопка «Декан» на входе была случайной.** Сид создаёт все аккаунты одним запросом, `created_at` у них одинаковый. Фронт брал первого декана по шаблону должности, и на репетиции это оказался декан ФИТ, а не декан ФЭУ, у которого Telegram ведущего. Теперь `GET /auth/demo/accounts` помечает четыре аккаунта показа полем `demo_role` и отдаёт их первыми, в порядке сюжета. Соответствие ролей и почт (`DEMO_ROLE_EMAILS`) берётся из той же таблицы, что и привязка Telegram в сиде.
+- **Telegram и письмо о поручении — словами поручения** (ADR-021). Было «📋 … назначил(а) вам задачу», стало «📌 … поручил(а) вам», как во всплывающем уведомлении на сайте. В письме: «… поручил(а) вам ACCR-21: …» и «дал(а) вам поручение». Для обычных задач текст не изменился.
+**Файлы:** `src/modules/auth/providers.ts`, `src/modules/auth/demo-routes.ts`, `src/prisma/demo/university.ts`, `src/modules/auth/telegram.service.ts`, `src/lib/email.ts`, `src/modules/issues/service.ts`, `src/app.ts`, `tests/auth-providers.test.ts`, `tests/demo-accounts.test.ts`, `tests/issue-notifications.test.ts`
+**API:**
+- `GET /api/v1/auth/providers` — новый, публичный: `{ email, google, github, telegram, demo }` (все `boolean`). В Swagger.
+- `GET /api/v1/auth/demo/accounts` — новое поле `demo_role`: `rector | prorector | dean | employee | null`. Четыре аккаунта показа идут первыми.
+**БД:** —
+**Конфигурация:** —
+**Тесты:** +7:
+- `auth-providers.test.ts` — маршрут, production без настроек, email в dev/production, неполная конфигурация OAuth;
+- `demo-accounts.test.ts` — роли и порядок при любом порядке создания;
+- `issue-notifications.test.ts` — поручение в Telegram: «поручил(а) вам» и кнопка «👁 Ознакомлен»; письмо о задаче — «назначил(а) вам».
+
+Всего 256 зелёных.
+**Как проверить:** на стенде без OAuth и SMTP `curl <стенд>/api/v1/auth/providers` → `email:false, google:false, github:false, telegram:false, demo:true`; на странице входа только быстрый вход, и «Декан» — декан ФЭУ.
+**Совместимость:** фронт — запись 13.P5 в CHANGELOG фронта (`src/api/auth.ts`). Старый фронт новые поля просто не читает.
+
 ## 2026-10-18 — 13.D3 Образ бэка для стенда в docker compose; пустые переменные окружения = не заданы
 **Фаза:** Ф13 · **Тип:** инфраструктура · **Ветка:** `claude/affectionate-wright-igm2y5`
 **Что изменено:**

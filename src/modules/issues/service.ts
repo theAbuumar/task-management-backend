@@ -949,6 +949,7 @@ export async function notifyIssueRecipients(
     projectName: project.name,
     actorName: actor.display_name,
     assigned: params.assigned,
+    kind: params.issue.kind,
   };
 
   // Telegram for linked recipients.
