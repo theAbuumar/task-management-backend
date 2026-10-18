@@ -563,6 +563,22 @@ export async function updateIssue(
     );
   }
 
+  // Who controls the work is the controller's call (13.P5): otherwise an assignee
+  // could make themselves the controller, switch review off or turn the assignment
+  // into a plain task, and close it without anyone accepting the result.
+  const controlled = before.kind === 'assignment' || before.requires_review;
+  const controlChanged =
+    (body.controller_id !== undefined && body.controller_id !== before.controller_id) ||
+    (body.requires_review !== undefined && body.requires_review !== before.requires_review) ||
+    (body.kind !== undefined && body.kind !== before.kind);
+  if (controlled && controlChanged && !reviewer) {
+    throw new AppError(
+      403,
+      'CONTROL_CHANGE_FORBIDDEN',
+      'Only the controller, the author or an admin can change the controller, the review requirement or the type',
+    );
+  }
+
   if (
     body.primary_assignee_id &&
     !before.assignees.some((a) => a.user_id === body.primary_assignee_id)

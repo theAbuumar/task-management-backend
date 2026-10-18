@@ -140,6 +140,48 @@ describe('acknowledgement and guards', () => {
   });
 });
 
+describe('who controls an assignment', () => {
+  it('the assignee cannot take over control: controller, review flag, type (13.P5)', async () => {
+    const issue = await createAssignment();
+    for (const change of [
+      { controller_id: dean.id },
+      { requires_review: false },
+      { kind: 'task' },
+    ]) {
+      const res = await as(dean).patch(issueApi(issue.id), change);
+      expect(res.status, JSON.stringify(change)).toBe(403);
+      expect(res.body.error.code).toBe('CONTROL_CHANGE_FORBIDDEN');
+    }
+    // Nothing changed, and the assignee still cannot close it bypassing review.
+    const after = await app.prisma.issue.findUniqueOrThrow({ where: { id: issue.id } });
+    expect(after).toMatchObject({
+      controller_id: rector.id,
+      requires_review: true,
+      kind: 'assignment',
+    });
+    const close = await as(dean).patch(issueApi(issue.id), { state_id: states.completed });
+    expect(close.body.error.code).toBe('REVIEW_REQUIRED');
+    // Resending the current values is not a change.
+    const same = await as(dean).patch(issueApi(issue.id), {
+      controller_id: rector.id,
+      requires_review: true,
+      kind: 'assignment',
+    });
+    expect(same.status).toBe(200);
+  });
+
+  it('the controller (and an admin) may hand control over or switch review off', async () => {
+    const issue = await createAssignment();
+    const handOver = await as(rector).patch(issueApi(issue.id), { controller_id: head.id });
+    expect(handOver.status).toBe(200);
+    expect(handOver.body.controller_id).toBe(head.id);
+    // The new controller decides from now on; the old one is still owner (admin+).
+    const off = await as(head).patch(issueApi(issue.id), { requires_review: false });
+    expect(off.status).toBe(200);
+    expect(off.body.requires_review).toBe(false);
+  });
+});
+
 describe('deadline-change requests', () => {
   it('assignee asks, controller approves → deadline moves and counts as a change', async () => {
     const issue = await createAssignment();
