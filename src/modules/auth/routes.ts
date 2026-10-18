@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { authenticate } from '../../plugins/auth-hook.js';
 import {
   registerRouteSchema,
@@ -66,6 +66,13 @@ import {
 // webhook (Telegram calls it, guarded by its secret header instead).
 const authRateLimit = { rateLimit: { max: 30, timeWindow: '1 minute' } };
 
+// A browser renews and ends its session with the httpOnly cookie alone and may send
+// no body at all; the body schema (refresh_token for API clients) would reject that
+// with 400 — sign-out then silently left the session alive (found by E2E, 12.F2).
+async function bodyOptional(request: FastifyRequest): Promise<void> {
+  request.body ??= {};
+}
+
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post('/register', { schema: registerRouteSchema, config: authRateLimit }, registerHandler);
   app.post('/login', { schema: loginRouteSchema, config: authRateLimit }, loginHandler);
@@ -106,8 +113,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   );
   app.post('/telegram/webhook', { schema: telegramWebhookRouteSchema }, telegramWebhookHandler);
   app.get('/telegram/status', { schema: telegramStatusRouteSchema }, telegramStatusHandler);
-  app.post('/refresh', { schema: refreshRouteSchema, config: authRateLimit }, refreshHandler);
-  app.post('/logout', { schema: logoutRouteSchema }, logoutHandler);
+  app.post(
+    '/refresh',
+    { schema: refreshRouteSchema, config: authRateLimit, preValidation: bodyOptional },
+    refreshHandler,
+  );
+  app.post('/logout', { schema: logoutRouteSchema, preValidation: bodyOptional }, logoutHandler);
   // Code-confirmed account deletion — both require a session; rate-limited like the
   // other sensitive endpoints (per-email OTP throttle in otp.service applies too).
   app.post(

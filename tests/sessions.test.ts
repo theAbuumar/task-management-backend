@@ -131,6 +131,23 @@ describe('sessions are opened at sign-in and kept by refresh', () => {
     expect(after.status).toBe(401);
     expect(after.body.error.code).toBe('SESSION_REVOKED');
   });
+
+  it('a browser renews and signs out with the cookie alone, without a body', async () => {
+    // The web app sends sign-out with no body at all: it used to answer 400 and
+    // leave the session alive (12.F2).
+    const agent = request.agent(app.server);
+    const res = await agent
+      .post('/api/v1/auth/login')
+      .send({ email: emails.main, password: PASSWORD });
+    expect(res.status).toBe(200);
+    expect((await agent.post('/api/v1/auth/refresh')).status).toBe(200);
+
+    expect((await agent.post('/api/v1/auth/logout')).status).toBe(204);
+    expect((await agent.post('/api/v1/auth/refresh')).status).toBe(401);
+    const after = await me(res.body.access_token);
+    expect(after.status).toBe(401);
+    expect(after.body.error.code).toBe('SESSION_REVOKED');
+  });
 });
 
 describe('ending a session', () => {

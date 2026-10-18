@@ -509,7 +509,7 @@ export const refreshRouteSchema: FastifySchema = {
   tags: ['Auth'],
   summary: 'Rotate the refresh token and issue a new access token',
   description:
-    'Reads the refresh token from the httpOnly cookie (browsers) or the request body (API/mobile clients). Sets a rotated refresh cookie on success; the sign-in session stays the same. `401 SESSION_REVOKED` when the session was ended (another device, an admin), `401 UNAUTHORIZED` when the token is invalid, expired or already rotated.',
+    'Reads the refresh token from the httpOnly cookie (browsers) or the request body (API/mobile clients); with the cookie the body may be omitted. Sets a rotated refresh cookie on success; the sign-in session stays the same. `401 SESSION_REVOKED` when the session was ended (another device, an admin), `401 UNAUTHORIZED` when the token is invalid, expired or already rotated.',
   body: {
     type: 'object',
     properties: {
@@ -525,7 +525,7 @@ export const logoutRouteSchema: FastifySchema = {
   tags: ['Auth'],
   summary: 'Sign out: end the session of the current refresh token',
   description:
-    'Ends the sign-in session of the refresh token from the httpOnly cookie (browsers) or the request body — every token of that session is revoked and its access tokens stop working — and clears the refresh cookie.',
+    'Ends the sign-in session of the refresh token from the httpOnly cookie (browsers) or the request body — every token of that session is revoked and its access tokens stop working — and clears the refresh cookie. With the cookie the body may be omitted.',
   body: {
     type: 'object',
     properties: {
