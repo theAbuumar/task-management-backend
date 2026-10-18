@@ -150,6 +150,11 @@ export async function nextSequenceId(
   prisma: Prisma.TransactionClient,
   projectId: string,
 ): Promise<number> {
+  // Lock the project row until the transaction ends: two tasks created in the same
+  // project at once would otherwise both read the same last number, and the second
+  // insert would fail on UNIQUE(project_id, sequence_id) with a 500. Callers create
+  // the issue in the same transaction, so creation is serialized per project only.
+  await prisma.$queryRaw`SELECT id FROM "Project" WHERE id = ${projectId} FOR UPDATE`;
   const last = await prisma.issue.findFirst({
     where: { project_id: projectId },
     orderBy: { sequence_id: 'desc' },
