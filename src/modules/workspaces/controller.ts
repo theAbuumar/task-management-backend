@@ -47,6 +47,7 @@ export async function updateWorkspaceHandler(
   const body = UpdateWorkspaceBodySchema.parse(request.body);
   const workspace = await workspaceService.updateWorkspace(
     request.server.prisma,
+    request.server.storage,
     request.workspace.id,
     body,
   );

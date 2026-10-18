@@ -395,7 +395,12 @@ export async function accountDeleteConfirmHandler(
   reply: FastifyReply,
 ): Promise<void> {
   const body = AccountDeleteConfirmBodySchema.parse(request.body);
-  await authService.confirmAccountDeletion(request.server.prisma, request.userId, body);
+  await authService.confirmAccountDeletion(
+    request.server.prisma,
+    request.server.storage,
+    request.userId,
+    body,
+  );
   // The account's sessions are revoked server-side; clear the browser's cookie too.
   clearRefreshCookie(reply);
   reply.code(204).send();
@@ -411,6 +416,11 @@ export async function getMeHandler(request: FastifyRequest, reply: FastifyReply)
 
 export async function updateMeHandler(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const body = UpdateMeBodySchema.parse(request.body);
-  const user = await authService.updateMe(request.server.prisma, request.userId, body);
+  const user = await authService.updateMe(
+    request.server.prisma,
+    request.server.storage,
+    request.userId,
+    body,
+  );
   reply.send(user);
 }

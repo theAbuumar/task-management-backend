@@ -89,6 +89,24 @@ describe('code-confirmed account deletion', () => {
     const email = `del-happy-${TS}@example.com`;
     const { token, userId } = await registerUser(email);
 
+    // An uploaded photo (3.B5) — deleting the account removes the file too.
+    const slot = await request(app.server)
+      .post('/api/v1/auth/me/avatar')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ mime_type: 'image/jpeg', size: 16 });
+    const photoPath = new URL(slot.body.upload.url).pathname;
+    await request(app.server)
+      .put(photoPath)
+      .set('Content-Type', 'image/jpeg')
+      .send(
+        Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1]),
+      );
+    const withPhoto = await request(app.server)
+      .patch('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ avatar_url: slot.body.url });
+    expect(withPhoto.status).toBe(200);
+
     const reqRes = await request(app.server)
       .post('/api/v1/auth/account/delete/request')
       .set('Authorization', `Bearer ${token}`)
@@ -118,6 +136,8 @@ describe('code-confirmed account deletion', () => {
     expect(user?.email_verified).toBe(false);
     expect(user?.is_active).toBe(false);
     expect(user?.display_name).toBe('Deleted user');
+    expect(user?.avatar_url).toBeNull();
+    expect((await request(app.server).get(photoPath)).status).toBe(404);
 
     // Login methods and sessions are gone.
     expect(await app.prisma.authIdentity.count({ where: { user_id: userId } })).toBe(0);

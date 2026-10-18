@@ -645,7 +645,12 @@ export const updateMeRouteSchema: FastifySchema = {
     type: 'object',
     properties: {
       display_name: { type: 'string', minLength: 1, maxLength: 100 },
-      avatar_url: { type: 'string', nullable: true },
+      avatar_url: {
+        type: 'string',
+        nullable: true,
+        description:
+          'The `url` from `POST /auth/me/avatar` after uploading, or null to remove. The stored file must be this user’s png/jpeg/webp up to 2 MB (`INVALID_IMAGE`); the replaced photo is deleted.',
+      },
       last_name: { type: 'string', maxLength: 60, nullable: true },
       first_name: { type: 'string', maxLength: 60, nullable: true },
       middle_name: { type: 'string', maxLength: 60, nullable: true },

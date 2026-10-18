@@ -3,9 +3,11 @@
 // Images go through the same storage driver as attachments (ADR-015): the client
 // asks for a presigned upload, PUTs the bytes, then saves the returned stable `url`
 // on the profile (`PATCH /auth/me { avatar_url }`) or workspace (`PATCH
-// /workspaces/:slug { logo_url }`). The stable URL hits `GET /api/v1/files/*`,
-// which redirects to a fresh presigned download — so the saved link never expires,
-// and the key's random UUID is what makes it unguessable (like attachment links).
+// /workspaces/:slug { logo_url }`). Saving checks the stored bytes (signature and
+// size) and deletes the image it replaces — see `lib/media.ts`. The stable URL hits
+// `GET /api/v1/files/*`, which redirects to a fresh presigned download — so the
+// saved link never expires, and the key's random UUID is what makes it unguessable
+// (like attachment links).
 
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifySchema } from 'fastify';
@@ -13,10 +15,7 @@ import { z } from 'zod';
 import { authenticate } from '../../plugins/auth-hook.js';
 import { requireWorkspaceMember } from '../../plugins/workspace-hook.js';
 import { AppError } from '../../lib/errors.js';
-import { config } from '../../config/index.js';
-
-const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
-const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+import { IMAGE_TYPES, MAX_IMAGE_BYTES, publicFileUrl } from '../../lib/media.js';
 /** Only these key prefixes are served publicly; attachments stay behind auth. */
 const PUBLIC_PREFIXES = ['avatars/', 'logos/'];
 
@@ -29,7 +28,7 @@ const imageUploadSchema = (summary: string, extra: Partial<FastifySchema> = {}):
   tags: ['Media'],
   summary,
   description:
-    'png/jpeg/webp up to 2 MB. Upload the bytes with `upload` (method, url, headers), then save `url` on the profile/workspace.',
+    'png/jpeg/webp up to 2 MB. Upload the bytes with `upload` (method, url, headers), then save `url` on the profile/workspace — saving checks the file signature and size (`INVALID_IMAGE`) and deletes the image it replaces.',
   security: [{ bearerAuth: [] }],
   body: {
     type: 'object',
@@ -59,10 +58,6 @@ const imageUploadSchema = (summary: string, extra: Partial<FastifySchema> = {}):
   ...extra,
 });
 
-function publicUrl(key: string): string {
-  return `${config.PUBLIC_BASE_URL.replace(/\/+$/, '')}/api/v1/files/${key}`;
-}
-
 export async function mediaRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/api/v1/auth/me/avatar',
@@ -74,7 +69,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
       const body = ImageUploadBodySchema.parse(request.body);
       const key = `avatars/${request.userId}/${randomUUID()}`;
       const upload = await app.storage.presignUpload(key, body.mime_type);
-      return { url: publicUrl(key), upload };
+      return { url: publicFileUrl(key), upload };
     },
   );
 
@@ -90,7 +85,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
       const body = ImageUploadBodySchema.parse(request.body);
       const key = `logos/${request.workspace.id}/${randomUUID()}`;
       const upload = await app.storage.presignUpload(key, body.mime_type);
-      return { url: publicUrl(key), upload };
+      return { url: publicFileUrl(key), upload };
     },
   );
 

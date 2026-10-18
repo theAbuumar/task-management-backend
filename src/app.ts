@@ -116,6 +116,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // Security headers. The CSP allows the inline script/style Swagger UI needs at
   // `/docs`; the API itself only returns JSON. CORP is `cross-origin` so files and
   // avatars can be embedded by the SPA when it is served from another origin.
+  // No `upgrade-insecure-requests`: on a plain-http stand (laptop, ADR-024) it
+  // rewrites Swagger's own scripts to https and `/docs` stays blank; HTTPS on the
+  // cloud stand is enforced by Caddy's http→https redirect and helmet's HSTS.
   await app.register(helmet, {
     contentSecurityPolicy: {
       directives: {
@@ -123,6 +126,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
         scriptSrc: ["'self'", "'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", 'data:', 'https:'],
+        upgradeInsecureRequests: null,
       },
     },
     crossOriginResourcePolicy: { policy: 'cross-origin' },

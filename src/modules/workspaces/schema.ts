@@ -185,7 +185,12 @@ export const updateWorkspaceSchema: FastifySchema = {
       slug: { type: 'string', minLength: 2, maxLength: 50, pattern: '^[a-z0-9-]+$' },
       short_name: { type: 'string', maxLength: 30, nullable: true },
       description: { type: 'string', maxLength: 1000, nullable: true },
-      logo_url: { type: 'string', nullable: true },
+      logo_url: {
+        type: 'string',
+        nullable: true,
+        description:
+          'The `url` from `POST /workspaces/{slug}/logo` after uploading, or null to remove. The stored file must be this workspace’s png/jpeg/webp up to 2 MB (`INVALID_IMAGE`); the replaced logo is deleted.',
+      },
       timezone: { type: 'string', maxLength: 64 },
       locale: { type: 'string', enum: ['ru', 'en'] },
     },

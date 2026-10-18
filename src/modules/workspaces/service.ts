@@ -1,5 +1,7 @@
 import type { PrismaClient, Workspace, WorkspaceMember, WorkspaceInvite } from '@prisma/client';
 import { AppError } from '../../lib/errors.js';
+import { assertUploadedImage, dropReplacedImage } from '../../lib/media.js';
+import type { StorageDriver } from '../../lib/storage.js';
 import { sendInviteEmail } from '../../lib/email.js';
 import { frontendUrl } from '../../lib/urls.js';
 import { departmentSubtreeIds } from '../departments/service.js';
@@ -50,6 +52,7 @@ export async function createWorkspace(
 
 export async function updateWorkspace(
   prisma: PrismaClient,
+  storage: StorageDriver,
   workspaceId: string,
   body: UpdateWorkspaceBody,
 ): Promise<Workspace> {
@@ -59,8 +62,16 @@ export async function updateWorkspace(
       throw AppError.conflict(`Workspace slug "${body.slug}" is already taken`);
     }
   }
+  // A new logo must be this workspace's own upload with a real image inside (3.B5).
+  const current = await prisma.workspace.findUniqueOrThrow({
+    where: { id: workspaceId },
+    select: { logo_url: true },
+  });
+  if (body.logo_url !== undefined) {
+    await assertUploadedImage(storage, body.logo_url, current.logo_url, 'logos', workspaceId);
+  }
 
-  return prisma.workspace.update({
+  const updated = await prisma.workspace.update({
     where: { id: workspaceId },
     data: {
       ...(body.name !== undefined && { name: body.name }),
@@ -72,6 +83,10 @@ export async function updateWorkspace(
       ...(body.locale !== undefined && { locale: body.locale }),
     },
   });
+  if (body.logo_url !== undefined) {
+    await dropReplacedImage(storage, current.logo_url, updated.logo_url, 'logos', workspaceId);
+  }
+  return updated;
 }
 
 export async function deleteWorkspace(prisma: PrismaClient, workspaceId: string): Promise<void> {

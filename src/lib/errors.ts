@@ -45,7 +45,8 @@ export type ErrorCode =
   | 'DEPARTMENT_HAS_NO_HEAD'
   | 'REALTIME_UNAVAILABLE'
   | 'TELEGRAM_NOT_CONFIRMED'
-  | 'CONTROL_CHANGE_FORBIDDEN';
+  | 'CONTROL_CHANGE_FORBIDDEN'
+  | 'INVALID_IMAGE';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -92,6 +93,8 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
     'Only the controller, the author or an admin can change who controls the work, whether it needs review, or its type',
   TELEGRAM_NOT_CONFIRMED:
     'The Telegram link is not confirmed in the bot (details.status: pending — keep polling; expired or used — start again)',
+  INVALID_IMAGE:
+    'An avatar or logo must be uploaded through its upload slot and be a png, jpeg or webp image up to 2 MB',
 };
 
 /**

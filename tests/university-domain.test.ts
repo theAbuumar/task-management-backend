@@ -357,4 +357,95 @@ describe('media: avatars and logos', () => {
     const res = await request(app.server).get('/api/v1/files/attachments/x/y/z');
     expect(res.status).toBe(404);
   });
+
+  // Saving the stable url checks the stored bytes (3.B5) and drops the replaced file.
+  const PNG = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.alloc(32, 1),
+  ]);
+  const WEBP = Buffer.concat([
+    Buffer.from('RIFF'),
+    Buffer.from([0x24, 0, 0, 0]),
+    Buffer.from('WEBPVP8 '),
+    Buffer.alloc(24),
+  ]);
+
+  /** Ask for a slot and PUT `bytes` into it (local driver → internal storage route). */
+  async function upload(slotUrl: string, actor: Actor, bytes: Buffer | null, mime = 'image/png') {
+    const slot = await as(actor).post(slotUrl, { mime_type: mime, size: bytes?.length || 10 });
+    expect(slot.status).toBe(200);
+    const storagePath = new URL(slot.body.upload.url).pathname;
+    if (bytes) {
+      const put = await request(app.server).put(storagePath).set('Content-Type', mime).send(bytes);
+      expect(put.status).toBe(204);
+    }
+    return { url: slot.body.url as string, storagePath };
+  }
+  const stored = async (storagePath: string) => (await request(app.server).get(storagePath)).status;
+
+  it('avatar: a real image is saved, a replaced or removed one is deleted', async () => {
+    const first = await upload('/api/v1/auth/me/avatar', staff, PNG);
+    const saved = await as(staff).patch('/api/v1/auth/me', { avatar_url: first.url });
+    expect(saved.status).toBe(200);
+    expect(saved.body.avatar_url).toBe(first.url);
+    // Saving the same value again (a full-profile PATCH) is a no-op, not a re-check.
+    expect((await as(staff).patch('/api/v1/auth/me', { avatar_url: first.url })).status).toBe(200);
+    expect(await stored(first.storagePath)).toBe(200);
+
+    const second = await upload('/api/v1/auth/me/avatar', staff, WEBP, 'image/webp');
+    expect((await as(staff).patch('/api/v1/auth/me', { avatar_url: second.url })).status).toBe(200);
+    expect(await stored(first.storagePath)).toBe(404);
+
+    const removed = await as(staff).patch('/api/v1/auth/me', { avatar_url: null });
+    expect(removed.status).toBe(200);
+    expect(removed.body.avatar_url).toBeNull();
+    expect(await stored(second.storagePath)).toBe(404);
+  });
+
+  it('avatar: a non-image is rejected by its signature and deleted', async () => {
+    const fake = await upload('/api/v1/auth/me/avatar', staff, Buffer.from('<html>not an image'));
+    const res = await as(staff).patch('/api/v1/auth/me', { avatar_url: fake.url });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_IMAGE');
+    expect(await stored(fake.storagePath)).toBe(404);
+    expect((await as(staff).get('/api/v1/auth/me')).body.avatar_url).toBeNull();
+  });
+
+  it('avatar: only an uploaded file of this user — not foreign links or other users', async () => {
+    const notUploaded = await upload('/api/v1/auth/me/avatar', staff, null);
+    const missing = await as(staff).patch('/api/v1/auth/me', { avatar_url: notUploaded.url });
+    expect(missing.status).toBe(400);
+    expect(missing.body.error.code).toBe('INVALID_IMAGE');
+
+    const external = await as(staff).patch('/api/v1/auth/me', {
+      avatar_url: 'https://tracker.example.com/pixel.png',
+    });
+    expect(external.status).toBe(400);
+    expect(external.body.error.code).toBe('INVALID_IMAGE');
+
+    const deans = await upload('/api/v1/auth/me/avatar', dean, PNG);
+    const stolen = await as(staff).patch('/api/v1/auth/me', { avatar_url: deans.url });
+    expect(stolen.status).toBe(400);
+    expect(stolen.body.error.code).toBe('INVALID_IMAGE');
+    // The rejected attempt does not delete someone else's file.
+    expect(await stored(deans.storagePath)).toBe(200);
+  });
+
+  it('logo: checked the same way, the replaced logo is deleted', async () => {
+    const fake = await upload(api('/logo'), rector, Buffer.from('GIF89a......'));
+    const bad = await as(rector).patch(api(''), { logo_url: fake.url });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.code).toBe('INVALID_IMAGE');
+    expect(await stored(fake.storagePath)).toBe(404);
+
+    const first = await upload(api('/logo'), rector, PNG);
+    const ok = await as(rector).patch(api(''), { logo_url: first.url });
+    expect(ok.status).toBe(200);
+    expect(ok.body.logo_url).toBe(first.url);
+
+    const second = await upload(api('/logo'), rector, WEBP, 'image/webp');
+    expect((await as(rector).patch(api(''), { logo_url: second.url })).status).toBe(200);
+    expect(await stored(first.storagePath)).toBe(404);
+    expect(await stored(second.storagePath)).toBe(200);
+  });
 });

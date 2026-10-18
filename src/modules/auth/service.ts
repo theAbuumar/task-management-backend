@@ -5,6 +5,8 @@ import { hashSecret, verifySecret } from '../../lib/password.js';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../lib/jwt.js';
 import { parseDurationMs } from '../../lib/duration.js';
 import { sendOtpEmail } from '../../lib/email.js';
+import { assertUploadedImage, dropReplacedImage } from '../../lib/media.js';
+import type { StorageDriver } from '../../lib/storage.js';
 import { acceptInviteAfterRegister } from '../invites/service.js';
 import { respondToInviteViaTelegram } from '../member-invites/service.js';
 import { issueOtp, verifyOtp, type OtpTarget } from './otp.service.js';
@@ -316,6 +318,7 @@ export async function requestAccountDeletion(
  */
 export async function confirmAccountDeletion(
   prisma: PrismaClient,
+  storage: StorageDriver,
   userId: string,
   body: AccountDeleteConfirmBody,
 ): Promise<void> {
@@ -348,6 +351,8 @@ export async function confirmAccountDeletion(
       },
     });
   });
+  // The photo goes too (only an uploaded one — an OAuth picture is not ours).
+  await dropReplacedImage(storage, user.avatar_url, null, 'avatars', userId);
 }
 
 // ─── OAuth / Telegram sign-in (auth_tz.md §1, §3–§5, §7) ────────────────────────
@@ -685,11 +690,16 @@ export async function getMe(prisma: PrismaClient, userId: string): Promise<SafeU
 
 export async function updateMe(
   prisma: PrismaClient,
+  storage: StorageDriver,
   userId: string,
   body: UpdateMeBody,
 ): Promise<SafeUser> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw AppError.notFound('User not found');
+  // A new avatar must be this user's own upload with a real image inside (3.B5).
+  if (body.avatar_url !== undefined) {
+    await assertUploadedImage(storage, body.avatar_url, user.avatar_url, 'avatars', userId);
+  }
 
   // Rebuild the rendered name from ФИО when the parts change without an explicit one.
   const nameTouched =
@@ -713,6 +723,9 @@ export async function updateMe(
       ...(body.timezone !== undefined && { timezone: body.timezone || null }),
     },
   });
+  if (body.avatar_url !== undefined) {
+    await dropReplacedImage(storage, user.avatar_url, updated.avatar_url, 'avatars', userId);
+  }
 
   return stripHash(updated);
 }
