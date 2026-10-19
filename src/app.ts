@@ -166,8 +166,10 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   // Analytics keep loaded facts for a few minutes; any successful write inside a
   // workspace drops them so dashboards never lag behind a change (Ф10 10.B6).
+  // AI requests (Ф11) write only their own dialogues and usage log, not the work.
   app.addHook('onResponse', async (request, reply) => {
     if (request.method === 'GET' || request.method === 'HEAD' || reply.statusCode >= 400) return;
+    if (/\/ai\//.test(request.routeOptions.url ?? '')) return;
     if (request.workspace) invalidateAnalytics(request.workspace.id);
   });
 
