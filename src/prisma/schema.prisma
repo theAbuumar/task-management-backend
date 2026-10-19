@@ -574,6 +574,9 @@ model Issue {
   @@index([kind])
   @@index([department_id])
   @@index([workspace_id, completed_at])
+  // Full-text search (7.B2) uses the expression GIN index "Issue_search_idx" on
+  // to_tsvector('russian', title || ' ' || coalesce(description, '')), created by
+  // migration `search` — Prisma cannot describe it; keep it out of DROP INDEX diffs.
 }
 
 model IssueAssignee {

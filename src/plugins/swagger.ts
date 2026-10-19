@@ -36,6 +36,11 @@ async function swaggerPlugin(app: FastifyInstance): Promise<void> {
             'Корзина (ADR-017): deleting an issue or a project moves it here for 30 days (`deleted_at`, `deleted_by_id`); then the scheduler removes it for good. Restores and removals are written to the audit log.',
         },
         {
+          name: 'Search',
+          description:
+            "Глобальный поиск (7.B2) for the command palette: issues by key or by words with Russian morphology (PostgreSQL full-text search), projects, people and departments of the workspace, within the caller's visibility.",
+        },
+        {
           name: 'Invitations',
           description:
             'Personal inbox for workspace invitations that target already-registered users. Not workspace-scoped: the recipient is not yet a member. Admins create these via `POST /workspaces/{slug}/members/invite-user` (tagged Workspaces); delivery fans out to email and Telegram.',

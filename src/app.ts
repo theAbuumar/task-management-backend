@@ -54,6 +54,7 @@ import { invalidateAnalytics } from './modules/analytics/data.js';
 import { eventRoutes } from './modules/events/routes.js';
 import { auditRoutes } from './modules/audit/routes.js';
 import { trashRoutes } from './modules/trash/routes.js';
+import { searchRoutes } from './modules/search/routes.js';
 import { aiIssueRoutes, aiRoutes } from './modules/ai/routes.js';
 import { healthRoutes } from './modules/health/routes.js';
 import { REQUEST_ID_HEADER, requestId } from './lib/request-id.js';
@@ -241,6 +242,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // Audit log for admins (Ф12 12.B1).
   await app.register(auditRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/audit' });
   await app.register(trashRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/trash' });
+  await app.register(searchRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/search' });
   // Live updates: bell, boards, the open issue (Ф8 8.B1).
   await app.register(eventRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/events' });
   await app.register(inviteRoutes, { prefix: '/api/v1/invites' });

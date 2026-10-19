@@ -24,6 +24,7 @@ import { buildWhere, INCLUDE_RELATIONS } from '../issues/service.js';
 import { departmentLines, loadDirectory, personLines, type Directory } from './directory.js';
 import { DATA_RULES, clip, dataBlock, ruDate, todayLine } from './prompts.js';
 import { runAi, type AiContext } from './service.js';
+import { searchIssues } from '../search/service.js';
 
 const HISTORY_MESSAGES = 12;
 const MAX_ROWS = 30;
@@ -170,7 +171,7 @@ function toolsFor(a: Asker): AiTool[] {
     {
       name: 'search_issues',
       description:
-        'Поиск задач и поручений, доступных пользователю, по ключу (например ECON-12) или словам из названия и описания. Возвращает до limit задач, новые сначала.',
+        'Поиск задач и поручений, доступных пользователю, по ключу (например ECON-12) или словам из названия и описания (с учётом падежей и окончаний). Возвращает до limit задач, самые подходящие сначала.',
       input_schema: {
         type: 'object',
         properties: {
@@ -184,21 +185,23 @@ function toolsFor(a: Asker): AiTool[] {
         if (!p.success) invalid(p.error);
         const exact = await findByKey(a, p.data.query);
         if (exact) return json({ issues: [rowOf(exact, tz, a.seen)] });
-        const issues = await a.prisma.issue.findMany({
-          where: {
-            AND: [
-              visibleIssuesWhere(a.workspace.id, a.member),
-              buildWhere(
-                undefined,
-                { search: p.data.query, sort_by: 'updated_at', order: 'desc', limit: 10 },
-                viewer,
-              ),
-            ],
-          },
-          include: ISSUE_INCLUDE,
-          orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
-          take: p.data.limit ?? 10,
-        });
+        // The workspace search (7.B2): Russian morphology, best matches first.
+        const found = await searchIssues(
+          a.prisma,
+          a.workspace.id,
+          a.member,
+          p.data.query,
+          p.data.limit ?? 10,
+        );
+        const rows = new Map(
+          (
+            await a.prisma.issue.findMany({
+              where: { id: { in: found.map((f) => f.id) } },
+              include: ISSUE_INCLUDE,
+            })
+          ).map((i) => [i.id, i]),
+        );
+        const issues = found.flatMap((f) => (rows.has(f.id) ? [rows.get(f.id)!] : []));
         return json({ issues: issues.map((i) => rowOf(i, tz, a.seen)) });
       },
     },

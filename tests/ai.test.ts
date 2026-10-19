@@ -560,7 +560,9 @@ describe('AI panel: questions within the asker’s rights (11.B5, 11.B6)', () =>
       question: 'Что просрочено у экономического факультета?',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
-    expect(found.issues).toHaveLength(0);
+    // «Секретная» also matches the public issue's description (morphology, 7.B2),
+    // but never the private project's issue.
+    expect(found.issues.map((i) => i.key)).toEqual([issues.pub.key]);
     expect(byKey).toContain('недоступна');
     expect(listed.total).toBe(1);
     expect(listed.issues.map((i) => i.key)).toEqual([issues.pub.key]);
@@ -577,7 +579,8 @@ describe('AI panel: questions within the asker’s rights (11.B5, 11.B6)', () =>
     };
     const res = await as(actors.deanB).post(api('/ai/ask'), { question: 'Найди секретную' });
     expect(res.status).toBe(200);
-    expect(found.issues.map((i) => i.key)).toEqual([issues.secret.key]);
+    // The title match ranks above the public issue's description match.
+    expect(found.issues.map((i) => i.key)).toEqual([issues.secret.key, issues.pub.key]);
     expect(res.body.message.issues[0]).toMatchObject({
       id: issues.secret.id,
       key: issues.secret.key,
