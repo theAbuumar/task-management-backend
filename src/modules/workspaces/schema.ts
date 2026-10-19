@@ -123,7 +123,6 @@ const memberShape = {
         last_name: { type: 'string', nullable: true },
         first_name: { type: 'string', nullable: true },
         middle_name: { type: 'string', nullable: true },
-        phone: { type: 'string', nullable: true },
         avatar_url: { type: 'string', nullable: true },
       },
     },

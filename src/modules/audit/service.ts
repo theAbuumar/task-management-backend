@@ -54,7 +54,7 @@ export const AUDIT_GROUPS = {
     'project.restored',
     'project.purged',
   ],
-  exports: ['report.exported'],
+  exports: ['report.exported', 'user.data_exported'],
   settings: ['workspace.updated', 'settings.control_updated'],
 } as const;
 

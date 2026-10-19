@@ -1,5 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { authenticate } from '../../plugins/auth-hook.js';
+import { writeAudit } from '../../lib/audit.js';
+import { exportMyData } from './data-export.js';
 import {
   registerRouteSchema,
   loginRouteSchema,
@@ -171,4 +173,47 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   );
   app.get('/me', { schema: getMeRouteSchema, preHandler: [authenticate] }, getMeHandler);
   app.patch('/me', { schema: updateMeRouteSchema, preHandler: [authenticate] }, updateMeHandler);
+
+  // «Скачать мои данные» (12.B13): everything kept about the caller, as a JSON file.
+  app.get(
+    '/me/export',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'Download my personal data (JSON file)',
+        description: [
+          'Everything the system keeps about the caller: profile, sign-in methods and sessions, workspaces,',
+          'issues they created, are assigned to, control or watch (by key and title), their comments, attachments',
+          '(names only), review reports and deadline requests, notifications, AI dialogues and usage, and their own',
+          'audit-log entries. No secrets (password hash, codes, tokens) and no texts of other people.',
+          'Sent as an attachment; written to the audit log as `user.data_exported`. 5 per minute per IP.',
+        ].join(' '),
+        security: [{ bearerAuth: [] }],
+      },
+      preHandler: [authenticate],
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      const data = await exportMyData(app.prisma, request.userId);
+      await writeAudit(
+        app.prisma,
+        {
+          actor_id: request.userId,
+          action: 'user.data_exported',
+          target_type: 'user',
+          target_id: request.userId,
+        },
+        request,
+      );
+      const day = new Date().toISOString().slice(0, 10);
+      return reply
+        .header('Content-Type', 'application/json; charset=utf-8')
+        .header(
+          'Content-Disposition',
+          `attachment; filename*=UTF-8''${encodeURIComponent(`Мои данные ${day}.json`)}`,
+        )
+        .header('Cache-Control', 'no-store')
+        .send(JSON.stringify(data, null, 2));
+    },
+  );
 }

@@ -105,7 +105,7 @@ const MEMBER_INCLUDE = {
       last_name: true,
       first_name: true,
       middle_name: true,
-      phone: true,
+      // No phone: colleagues do not need it, only the person sees it (12.B13).
       avatar_url: true,
     },
   },

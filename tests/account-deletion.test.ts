@@ -109,6 +109,18 @@ describe('code-confirmed account deletion', () => {
       .send({ avatar_url: slot.body.url });
     expect(withPhoto.status).toBe(200);
 
+    // The full name and phone (Ф3) are personal data too (12.B13).
+    await app.prisma.user.update({
+      where: { id: userId },
+      data: {
+        last_name: 'Удаляев',
+        first_name: 'Иван',
+        middle_name: 'Петрович',
+        phone: '+992 90 000 00 00',
+        notification_settings: { telegram: { issue_assigned: false } },
+      },
+    });
+
     const reqRes = await request(app.server)
       .post('/api/v1/auth/account/delete/request')
       .set('Authorization', `Bearer ${token}`)
@@ -139,6 +151,13 @@ describe('code-confirmed account deletion', () => {
     expect(user?.is_active).toBe(false);
     expect(user?.display_name).toBe('Deleted user');
     expect(user?.avatar_url).toBeNull();
+    expect(user).toMatchObject({
+      last_name: null,
+      first_name: null,
+      middle_name: null,
+      phone: null,
+      notification_settings: null,
+    });
     expect(await app.storage.inspect(photoKey, 0)).toBeNull();
 
     // Login methods and sessions are gone.

@@ -1,4 +1,10 @@
-import type { PrismaClient, User, AuthIdentity, AuthProvider, Prisma } from '@prisma/client';
+import {
+  Prisma,
+  type PrismaClient,
+  type User,
+  type AuthIdentity,
+  type AuthProvider,
+} from '@prisma/client';
 import { config } from '../../config/index.js';
 import { AppError } from '../../lib/errors.js';
 import { hashSecret, verifySecret } from '../../lib/password.js';
@@ -350,6 +356,12 @@ export async function confirmAccountDeletion(
         email_verified: false,
         password_hash: null,
         display_name: 'Deleted user',
+        // The full name and phone (Ф3) are the person too (12.B13).
+        last_name: null,
+        first_name: null,
+        middle_name: null,
+        phone: null,
+        notification_settings: Prisma.DbNull,
         avatar_url: null,
         is_active: false,
       },
