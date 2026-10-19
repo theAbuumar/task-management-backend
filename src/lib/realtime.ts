@@ -53,7 +53,9 @@ const RECIPIENT_CHUNK = 150;
 /** Activity action (lib/activity) → event type; null = not a real-time event. */
 export function eventTypeOfAction(action: string): RealtimeEventType | null {
   switch (action) {
+    // Back from the trash, an issue is added to boards like a new one (7.B6).
     case 'issue.created':
+    case 'issue.restored':
       return 'issue.created';
     case 'issue.deleted':
       return 'issue.deleted';

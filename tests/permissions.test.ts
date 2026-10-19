@@ -116,6 +116,8 @@ const GUEST_WRITES: [string, (g: ReturnType<typeof as>) => request.Test][] = [
         reason: 'Нужно время',
       }),
   ],
+  ['restore from the trash', (g) => g.post(api(`/trash/issue/${ids.issue}/restore`))],
+  ['delete from the trash for good', (g) => g.delete(api(`/trash/issue/${ids.issue}`))],
   [
     'distribute to departments',
     (g) =>
@@ -145,6 +147,7 @@ describe('guest is read-only', () => {
       api('/me/summary'),
       api('/analytics/summary'),
       api('/members'),
+      api('/trash'),
     ]) {
       const res = await as(guest).get(url);
       expect(res.status, url).toBe(200);

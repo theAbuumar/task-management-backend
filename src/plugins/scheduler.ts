@@ -1,5 +1,6 @@
 // Background scheduler (Ф5 5.B1). Runs the deadline-reminder pass every few
-// minutes inside the API process.
+// minutes inside the API process, and empties the trash of what was deleted
+// more than 30 days ago (Ф7 7.B6, ADR-017).
 //
 // "Режим 6 дней" simplification of ADR-009 (pg-boss): a timer + a PostgreSQL
 // advisory lock, so with several instances only one runs a pass at a time, and
@@ -10,6 +11,8 @@ import fp from 'fastify-plugin';
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config/index.js';
 import { runReminders } from '../modules/control/reminders.js';
+import { purgeExpiredTrash } from '../modules/trash/service.js';
+import { writeAudit } from '../lib/audit.js';
 
 const INTERVAL_MS = 5 * 60 * 1000;
 const FIRST_RUN_DELAY_MS = 30 * 1000;
@@ -73,6 +76,19 @@ async function schedulerPlugin(app: FastifyInstance): Promise<void> {
           const result = await runReminders(app.prisma);
           const sent = result.sent.due_soon + result.sent.overdue + result.sent.escalated;
           if (sent > 0) app.log.info({ reminders: result.sent }, 'deadline reminders sent');
+
+          const purged = await purgeExpiredTrash(app.prisma, app.storage);
+          for (const item of purged) {
+            await writeAudit(app.prisma, {
+              workspace_id: item.workspace_id,
+              actor_id: null,
+              action: `${item.type}.purged`,
+              target_type: item.type,
+              target_id: item.id,
+              meta: { title: item.title, auto: true },
+            });
+          }
+          if (purged.length > 0) app.log.info({ purged: purged.length }, 'trash emptied');
         },
         { maxWait: 10_000, timeout: 10 * 60 * 1000 },
       );
@@ -95,4 +111,4 @@ async function schedulerPlugin(app: FastifyInstance): Promise<void> {
   });
 }
 
-export default fp(schedulerPlugin, { name: 'scheduler', dependencies: ['prisma'] });
+export default fp(schedulerPlugin, { name: 'scheduler', dependencies: ['prisma', 'storage'] });

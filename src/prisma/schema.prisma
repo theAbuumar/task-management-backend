@@ -452,6 +452,8 @@ model Project {
   updated_at    DateTime          @updatedAt
   // Soft delete: the project sits in the trash for 30 days (ADR-017).
   deleted_at    DateTime?
+  // Who moved it to the trash (7.B6); a plain id, the person may be gone later.
+  deleted_by_id String?
 
   workspace  Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
   lead       User?           @relation("ProjectLead", fields: [lead_id], references: [id])
@@ -531,7 +533,9 @@ model Issue {
   sort_order      Float         @default(0)
   created_at      DateTime      @default(now())
   updated_at      DateTime      @updatedAt
+  // Soft delete: the issue sits in the trash for 30 days (ADR-017, 7.B6).
   deleted_at      DateTime?
+  deleted_by_id   String?
 
   workspace         Workspace               @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
   project           Project                 @relation(fields: [project_id], references: [id], onDelete: Cascade)

@@ -1799,6 +1799,7 @@ export async function seedDemo(
       created_at: plusDays(duplicateDeleted, -0.2),
       updated_at: duplicateDeleted,
       deleted_at: duplicateDeleted,
+      deleted_by_id: uid('pr_edu'),
     },
   });
 

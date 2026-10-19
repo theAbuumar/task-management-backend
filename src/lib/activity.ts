@@ -22,6 +22,8 @@ export const ACTIVITY_ACTIONS = {
   ISSUE_CREATED: 'issue.created',
   ISSUE_UPDATED: 'issue.updated',
   ISSUE_DELETED: 'issue.deleted',
+  // Back from the trash (7.B6).
+  ISSUE_RESTORED: 'issue.restored',
   ISSUE_ASSIGNEE_ADDED: 'issue.assignee_added',
   ISSUE_ASSIGNEE_REMOVED: 'issue.assignee_removed',
   ISSUE_LABEL_ADDED: 'issue.label_added',

@@ -68,7 +68,12 @@ export async function deleteProjectHandler(
   reply: FastifyReply,
 ): Promise<void> {
   const { projectId } = request.params as { projectId: string };
-  await projectService.deleteProject(request.server.prisma, request.workspace.id, projectId);
+  await projectService.deleteProject(
+    request.server.prisma,
+    request.workspace.id,
+    projectId,
+    request.userId,
+  );
   reply.code(204).send();
 }
 

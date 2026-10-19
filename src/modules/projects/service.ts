@@ -249,13 +249,17 @@ export async function deleteProject(
   prisma: PrismaClient,
   workspaceId: string,
   projectId: string,
+  actorId: string,
 ): Promise<void> {
   const project = await prisma.project.findFirst({
     where: { id: projectId, workspace_id: workspaceId, deleted_at: null },
   });
   if (!project) throw AppError.notFound('Project not found');
   // Soft delete: the project goes to the trash (restorable for 30 days, ADR-017).
-  await prisma.project.update({ where: { id: projectId }, data: { deleted_at: new Date() } });
+  await prisma.project.update({
+    where: { id: projectId },
+    data: { deleted_at: new Date(), deleted_by_id: actorId },
+  });
 }
 
 // ─── Project members ──────────────────────────────────────────────────────────

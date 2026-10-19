@@ -38,6 +38,8 @@ export const AUDIT_GROUPS = {
     'project.created',
     'project.updated',
     'project.deleted',
+    'project.restored',
+    'project.purged',
   ],
   deletions: [
     'issue.deleted',
@@ -46,6 +48,11 @@ export const AUDIT_GROUPS = {
     'department.deleted',
     'member.removed',
     'workspace.deleted',
+    // The trash (7.B6): back from it, or removed for good (by an admin or after 30 days).
+    'issue.restored',
+    'issue.purged',
+    'project.restored',
+    'project.purged',
   ],
   exports: ['report.exported'],
   settings: ['workspace.updated', 'settings.control_updated'],
@@ -141,7 +148,10 @@ export async function listAudit(
   return { data, next_cursor: hasMore ? (page[page.length - 1]?.id ?? null) : null };
 }
 
-/** Current names of the people, projects, departments and issues on a page. */
+/**
+ * Current names of the people, projects, departments and issues on a page. An
+ * issue or project removed for good keeps the name its `*.purged` entry saved.
+ */
 async function resolveNames(
   prisma: PrismaClient,
   workspaceId: string,
@@ -181,12 +191,33 @@ async function resolveNames(
       },
     }),
   ]);
+  const project = new Map(projects.map((p) => [p.id, `${p.name} (${p.identifier})`]));
+  const issue = new Map(
+    issues.map((i) => [i.id, `${i.project.identifier}-${i.sequence_id} ${i.title}`]),
+  );
+  const gone = [
+    ...ids('project').filter((id) => !project.has(id)),
+    ...ids('issue').filter((id) => !issue.has(id)),
+  ];
+  if (gone.length > 0) {
+    const purged = await prisma.auditLog.findMany({
+      where: {
+        workspace_id: workspaceId,
+        action: { in: ['issue.purged', 'project.purged'] },
+        target_id: { in: gone },
+      },
+      select: { target_type: true, target_id: true, meta: true },
+    });
+    for (const e of purged) {
+      const title = (e.meta as { title?: unknown } | null)?.title;
+      if (typeof title !== 'string' || !e.target_id) continue;
+      (e.target_type === 'project' ? project : issue).set(e.target_id, title);
+    }
+  }
   return {
     user: new Map(users.map((u) => [u.id, u.display_name])),
-    project: new Map(projects.map((p) => [p.id, `${p.name} (${p.identifier})`])),
+    project,
     department: new Map(departments.map((d) => [d.id, d.name])),
-    issue: new Map(
-      issues.map((i) => [i.id, `${i.project.identifier}-${i.sequence_id} ${i.title}`]),
-    ),
+    issue,
   };
 }

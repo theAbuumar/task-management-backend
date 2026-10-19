@@ -60,7 +60,8 @@ export type ErrorCode =
   | 'AI_REFUSED'
   | 'AI_BAD_OUTPUT'
   | 'AI_INPUT_TOO_LARGE'
-  | 'AI_FILE_UNSUPPORTED';
+  | 'AI_FILE_UNSUPPORTED'
+  | 'PROJECT_IN_TRASH';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -130,6 +131,8 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
   AI_INPUT_TOO_LARGE: 'The text or file is too large for the AI service',
   AI_FILE_UNSUPPORTED:
     'The file must be a .txt, .docx or .pdf up to 10 MB with readable text (details.file_name)',
+  PROJECT_IN_TRASH:
+    'The issue is in a project that is itself in the trash — restore the project first',
 };
 
 /**

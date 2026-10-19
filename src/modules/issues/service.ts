@@ -756,7 +756,7 @@ export async function deleteIssue(
   await prisma.$transaction(async (tx) => {
     await tx.issue.update({
       where: { id: issueId },
-      data: { deleted_at: new Date() },
+      data: { deleted_at: new Date(), deleted_by_id: actorId },
     });
     await recordActivity(tx, {
       workspace_id: workspaceId,
