@@ -134,6 +134,12 @@ export const envSchema = z
     /** Whole-operation deadline for one AI request, milliseconds. */
     AI_TIMEOUT_MS: z.coerce.number().int().min(5000).max(600000).default(120000),
 
+    // --- «О системе» (13.D4, 13.F4) ---
+    /** Commit the stand runs (dev/stand.sh up sets it); shown in «О системе». */
+    APP_COMMIT: z.string().max(64).optional(),
+    /** Whom to contact about the system: e-mail, phone, room — shown in «О системе». */
+    SUPPORT_CONTACT: z.string().max(300).optional(),
+
     // --- Rate limits per signed-in user, per minute (12.B5, plugins/write-limits) ---
     /** Changes (POST/PATCH/PUT/DELETE) inside workspaces. */
     RATE_LIMIT_WRITES: z.coerce.number().int().min(1).max(100000).default(300),
