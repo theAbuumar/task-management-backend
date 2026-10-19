@@ -53,6 +53,7 @@ import { analyticsRoutes } from './modules/analytics/routes.js';
 import { invalidateAnalytics } from './modules/analytics/data.js';
 import { eventRoutes } from './modules/events/routes.js';
 import { auditRoutes } from './modules/audit/routes.js';
+import { aiIssueRoutes, aiRoutes } from './modules/ai/routes.js';
 import { healthRoutes } from './modules/health/routes.js';
 import { REQUEST_ID_HEADER, requestId } from './lib/request-id.js';
 
@@ -228,6 +229,11 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   });
   await app.register(notificationRoutes, {
     prefix: '/api/v1/workspaces/:workspaceSlug/notifications',
+  });
+  // AI assistant (Ф11, ADR-028): off unless AI_ENABLED; the routes then say AI_DISABLED.
+  await app.register(aiRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/ai' });
+  await app.register(aiIssueRoutes, {
+    prefix: '/api/v1/workspaces/:workspaceSlug/projects/:projectId/issues/:issueId/ai',
   });
   // Audit log for admins (Ф12 12.B1).
   await app.register(auditRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/audit' });

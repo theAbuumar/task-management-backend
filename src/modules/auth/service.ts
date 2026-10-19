@@ -336,6 +336,9 @@ export async function confirmAccountDeletion(
     await tx.authIdentity.deleteMany({ where: { user_id: userId } });
     await tx.refreshToken.deleteMany({ where: { user_id: userId } });
     await tx.authSession.deleteMany({ where: { user_id: userId } });
+    // Personal AI dialogues and a pending Telegram draft go with the account (ADR-028).
+    await tx.aiConversation.deleteMany({ where: { user_id: userId } });
+    await tx.telegramAiDraft.deleteMany({ where: { user_id: userId } });
     // Drop any outstanding codes for this account, on either channel.
     await tx.emailOtp.deleteMany({
       where: { OR: [{ user_id: userId }, ...(user.email ? [{ email: user.email }] : [])] },

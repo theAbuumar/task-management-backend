@@ -195,6 +195,8 @@ model User {
   sent_invites              WorkspaceInvite[]
   member_invites_sent       WorkspaceMemberInvite[] @relation("MemberInviteInviter")
   member_invites_received   WorkspaceMemberInvite[] @relation("MemberInviteTarget")
+  ai_usage                  AiUsage[]
+  ai_conversations          AiConversation[]
 }
 
 // Rotating refresh tokens. One row per live token; revoked_at set on logout/rotation.
@@ -366,19 +368,21 @@ model Workspace {
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
-  owner          User                    @relation("WorkspaceOwner", fields: [owner_id], references: [id])
-  departments    Department[]
-  members        WorkspaceMember[]
-  projects       Project[]
-  labels         Label[]
-  issues         Issue[]
-  cycles         Cycle[]
-  modules        Module[]
-  activities     ActivityLog[]
-  attachments    Attachment[]
-  notifications  Notification[]
-  invites        WorkspaceInvite[]
-  member_invites WorkspaceMemberInvite[] @relation("WorkspaceMemberInvites")
+  owner            User                    @relation("WorkspaceOwner", fields: [owner_id], references: [id])
+  departments      Department[]
+  members          WorkspaceMember[]
+  projects         Project[]
+  labels           Label[]
+  issues           Issue[]
+  cycles           Cycle[]
+  modules          Module[]
+  activities       ActivityLog[]
+  attachments      Attachment[]
+  notifications    Notification[]
+  invites          WorkspaceInvite[]
+  member_invites   WorkspaceMemberInvite[] @relation("WorkspaceMemberInvites")
+  ai_usage         AiUsage[]
+  ai_conversations AiConversation[]
 }
 
 model WorkspaceMember {
@@ -522,6 +526,8 @@ model Issue {
   // child carries the department it is addressed to (its head is the primary assignee).
   is_distribution Boolean       @default(false)
   department_id   String?
+  // Created from an AI draft (Ф11 11.F5, ADR-028): a person reviewed and created it.
+  ai_assisted     Boolean       @default(false)
   sort_order      Float         @default(0)
   created_at      DateTime      @default(now())
   updated_at      DateTime      @updatedAt
@@ -904,4 +910,75 @@ model ReminderLog {
   issue Issue @relation(fields: [issue_id], references: [id], onDelete: Cascade)
 
   @@unique([issue_id, user_id, kind, for_date])
+}
+
+/// AI assistant usage (Ф11 11.B1, ADR-028): who used which function, how much and
+/// with what result. The text of the request and of the answer is never kept here.
+/// The daily limit counts the `ok` rows of a user.
+model AiUsage {
+  id            String   @id @default(uuid())
+  workspace_id  String
+  user_id       String
+  /// draft_issues | summary | report | ask | bot_draft
+  feature       String
+  provider      String
+  model         String
+  /// ok | error
+  status        String
+  error_code    String?
+  input_tokens  Int      @default(0)
+  output_tokens Int      @default(0)
+  duration_ms   Int
+  created_at    DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, created_at])
+  @@index([workspace_id, created_at])
+}
+
+/// A dialogue in the AI panel (11.B5). Only its author reads it.
+model AiConversation {
+  id           String   @id @default(uuid())
+  workspace_id String
+  user_id      String
+  title        String
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  workspace Workspace   @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  messages  AiMessage[]
+
+  @@index([workspace_id, user_id, updated_at])
+}
+
+model AiMessage {
+  id              String   @id @default(uuid())
+  conversation_id String
+  /// user | assistant
+  role            String
+  content         String
+  /// Issues an answer links to, [{ id, key }]; checked against the reader's rights on every read.
+  issue_refs      Json?
+  created_at      DateTime @default(now())
+
+  conversation AiConversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+
+  @@index([conversation_id, created_at])
+}
+
+/// Telegram «Новое поручение» (11.T1): the bot waits for the text of an assignment
+/// (`text`), shows a draft (`draft`) or waits for a correction (`edit`). One per
+/// chat; expires after 30 minutes. Nothing is created until «Создать».
+model TelegramAiDraft {
+  chat_id      String   @id
+  user_id      String
+  workspace_id String
+  stage        String
+  draft        Json?
+  expires_at   DateTime
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
 }

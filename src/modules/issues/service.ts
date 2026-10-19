@@ -458,6 +458,7 @@ export async function createIssue(
         controller_id: body.controller_id ?? null,
         requires_review: requiresReview,
         basis: body.basis ?? null,
+        ai_assisted: body.ai_assisted ?? false,
         assignees: assigneeIds.length
           ? {
               createMany: {

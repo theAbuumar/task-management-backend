@@ -121,6 +121,7 @@ export async function distributeIssue(
     controller_id: controllerId,
     requires_review: requiresReview,
     basis: body.basis ?? null,
+    ai_assisted: body.ai_assisted ?? false,
   };
 
   const created = await prisma.$transaction(async (tx) => {

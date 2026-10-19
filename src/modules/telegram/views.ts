@@ -65,11 +65,14 @@ export const MENU_BUTTONS: Record<string, ListFilter> = {
   '🎯 На контроле': 'control',
 };
 
+/** Shown in the menu only when the AI assistant is on (Ф11 11.T1). */
+export const AI_MENU_BUTTON = '🤖 Новое поручение';
+
 export const MENU_KEYBOARD = {
   keyboard: [
     [{ text: '📋 Мои задачи' }, { text: '⏰ Сегодня' }],
     [{ text: '🔥 Просрочено' }, { text: '✅ Ждут проверки' }],
-    [{ text: '🎯 На контроле' }],
+    [{ text: '🎯 На контроле' }, ...(config.AI_ENABLED ? [{ text: AI_MENU_BUTTON }] : [])],
   ],
   resize_keyboard: true,
   is_persistent: true,
@@ -336,6 +339,12 @@ export const WELCOME = [
   'Здесь приходят поручения, напоминания о сроках и запросы на проверку. Кнопки под сообщениями работают сразу: «Ознакомлен», «Принять», «Вернуть», «Сдать на проверку».',
   '',
   'Меню внизу — ваши списки: мои задачи, сроки на сегодня, просроченное, ждущее проверки и поручения на контроле.',
+  ...(config.AI_ENABLED
+    ? [
+        '',
+        '«🤖 Новое поручение» — опишите поручение своими словами, AI подготовит черновик, а создадите его вы.',
+      ]
+    : []),
 ].join('\n');
 
 export const NOT_LINKED = [

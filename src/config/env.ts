@@ -117,6 +117,23 @@ export const envSchema = z
      */
     TELEGRAM_WEBHOOK_SECRET: z.string().min(1).optional(),
 
+    // --- AI assistant (Ф11, ADR-016, ADR-028) --- off unless the owner turns it on
+    AI_ENABLED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
+    /** Which provider class serves the requests (lib/ai). Only Claude API so far. */
+    AI_PROVIDER: z.enum(['anthropic']).default('anthropic'),
+    /** Provider API key; required when AI_ENABLED=true. */
+    AI_API_KEY: z.string().min(1).optional(),
+    AI_MODEL: z.string().min(1).default('claude-opus-5-5'),
+    /** Optional gateway in front of the provider API. */
+    AI_BASE_URL: z.string().url().optional(),
+    /** Successful AI requests per user per day (from midnight in the workspace zone). */
+    AI_DAILY_LIMIT: z.coerce.number().int().min(1).max(100000).default(50),
+    /** Whole-operation deadline for one AI request, milliseconds. */
+    AI_TIMEOUT_MS: z.coerce.number().int().min(5000).max(600000).default(120000),
+
     // --- CORS --- (comma-separated origins, or `*`; configured per environment)
     CORS_ORIGIN: z.string().min(1).default('*'),
 
@@ -158,6 +175,13 @@ export const envSchema = z
       .transform((v) => v === 'true'),
   })
   .superRefine((env, ctx) => {
+    if (env.AI_ENABLED && !env.AI_API_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['AI_API_KEY'],
+        message: 'AI_API_KEY is required when AI_ENABLED=true',
+      });
+    }
     if (env.STORAGE_DRIVER === 's3') {
       for (const key of ['S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'] as const) {
         if (!env[key]) {

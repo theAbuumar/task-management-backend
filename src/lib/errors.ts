@@ -52,7 +52,15 @@ export type ErrorCode =
   | 'GUEST_NOT_ASSIGNABLE'
   | 'MEMBER_DEACTIVATED'
   | 'FILE_TYPE_NOT_ALLOWED'
-  | 'FILE_CONTENT_MISMATCH';
+  | 'FILE_CONTENT_MISMATCH'
+  | 'AI_DISABLED'
+  | 'AI_LIMIT_REACHED'
+  | 'AI_TIMEOUT'
+  | 'AI_UNAVAILABLE'
+  | 'AI_REFUSED'
+  | 'AI_BAD_OUTPUT'
+  | 'AI_INPUT_TOO_LARGE'
+  | 'AI_FILE_UNSUPPORTED';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -112,6 +120,16 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
     'Executable files and scripts cannot be attached — refused by extension, or by content whatever the name (details.file_name)',
   FILE_CONTENT_MISMATCH:
     'The file content does not match its extension, e.g. a «.pdf» that is not a PDF (details.file_name)',
+  AI_DISABLED: 'The AI assistant is turned off on this server (or not available to guests)',
+  AI_LIMIT_REACHED:
+    'The daily AI request limit is used up (details: limit, used, resets_at) — try again tomorrow',
+  AI_TIMEOUT: 'The AI service did not answer in time — try again or shorten the text',
+  AI_UNAVAILABLE: 'The AI service is unavailable or busy right now — try again later',
+  AI_REFUSED: 'The AI model declined this request — rephrase it',
+  AI_BAD_OUTPUT: 'The AI answer could not be used — try again',
+  AI_INPUT_TOO_LARGE: 'The text or file is too large for the AI service',
+  AI_FILE_UNSUPPORTED:
+    'The file must be a .txt, .docx or .pdf up to 10 MB with readable text (details.file_name)',
 };
 
 /**

@@ -37,6 +37,8 @@ export const CreateIssueBodySchema = z.object({
   basis: z.string().max(500).optional().nullable(),
   // Ответственный исполнитель — one of assignee_ids (defaults to the first).
   primary_assignee_id: z.string().uuid().optional(),
+  // Created from an AI draft that a person checked (Ф11 11.F5).
+  ai_assisted: z.boolean().optional(),
 });
 
 // Рассылка подразделениям (6.B1): one assignment, a child per department.
@@ -54,6 +56,7 @@ export const DistributeBodySchema = z.object({
   requires_review: z.boolean().optional(),
   basis: z.string().max(500).optional().nullable(),
   department_ids: z.array(z.string().uuid()).min(1).max(100),
+  ai_assisted: z.boolean().optional(),
 });
 
 export const UpdateIssueBodySchema = z.object({
@@ -159,6 +162,8 @@ const issueShape = {
     basis: { type: 'string', nullable: true },
     is_distribution: { type: 'boolean' },
     department_id: { type: 'string', nullable: true },
+    // Created from an AI draft (Ф11): the card says «Подготовлено с помощью AI».
+    ai_assisted: { type: 'boolean' },
     // { id, name, short_name } of the department a distribution child is addressed to.
     department: { type: 'object', nullable: true, additionalProperties: true },
     // { id, name, identifier, icon, color } — present in the workspace-wide list.
@@ -309,6 +314,10 @@ export const createIssueSchema: FastifySchema = {
       requires_review: { type: 'boolean' },
       basis: { type: 'string', maxLength: 500, nullable: true },
       primary_assignee_id: { type: 'string', format: 'uuid' },
+      ai_assisted: {
+        type: 'boolean',
+        description: 'Made from an AI draft (POST WS/ai/draft-issues) that a person checked',
+      },
     },
   },
   response: { 201: issueShape },
@@ -345,6 +354,7 @@ export const distributeIssueSchema: FastifySchema = {
         maxItems: 100,
         items: { type: 'string', format: 'uuid' },
       },
+      ai_assisted: { type: 'boolean', description: 'Made from an AI draft a person checked' },
     },
   },
   response: { 201: issueShape },

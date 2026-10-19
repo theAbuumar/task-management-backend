@@ -66,6 +66,13 @@ import {
   type CardRights,
   type ListFilter,
 } from './views.js';
+import {
+  AI_MENU_BUTTON,
+  dropAiDraft,
+  handleAiDraftCallback,
+  handleAiDraftText,
+  startAiDraft,
+} from './ai-draft.js';
 
 const INPUT_TTL_MS = 15 * 60 * 1000;
 /** Files per hand-in — a Telegram album holds up to 10. */
@@ -447,6 +454,8 @@ async function rememberQuestion(
     action,
     expires_at: new Date(Date.now() + INPUT_TTL_MS),
   };
+  // A question about an issue replaces an unfinished «Новое поручение».
+  await dropAiDraft(prisma, chatId);
   await prisma.telegramPendingInput.upsert({
     where: { chat_id: String(chatId) },
     create: { chat_id: String(chatId), ...data },
@@ -490,10 +499,11 @@ async function dropFiles(prisma: PrismaClient, chatId: number) {
   await prisma.telegramPendingFile.deleteMany({ where: { chat_id: String(chatId) } });
 }
 
-/** The pending question and the files sent for it. */
+/** The pending question, the files sent for it and an AI draft in progress. */
 async function dropPending(prisma: PrismaClient, chatId: number) {
   await prisma.telegramPendingInput.deleteMany({ where: { chat_id: String(chatId) } });
   await dropFiles(prisma, chatId);
+  await dropAiDraft(prisma, chatId);
 }
 
 /** The latest caption among the files — the report written under a file. */
@@ -768,6 +778,9 @@ export async function handleBotCallback(
   const chatId = cq.message?.chat.id ?? cq.from.id;
   const messageId = cq.message?.message_id;
 
+  // «🤖 Новое поручение»: workspace, create, edit, cancel, project (11.T1).
+  if (await handleAiDraftCallback(prisma, cq, user)) return;
+
   if (data === CB.cancel) {
     await dropPending(prisma, chatId);
     await answerCallbackQuery(cq.id, 'Отменено');
@@ -964,6 +977,11 @@ export async function handleBotMessage(
     await sendList(prisma, chatId, user, menuFilter);
     return;
   }
+  if (text === AI_MENU_BUTTON || command === '/new') {
+    await dropPending(prisma, chatId);
+    await startAiDraft(prisma, chatId, user);
+    return;
+  }
   if (command === '/cancel') {
     await sendBotMessage(chatId, 'Отменено.', { reply_markup: MENU_KEYBOARD });
     return;
@@ -972,6 +990,9 @@ export async function handleBotMessage(
     await sendBotMessage(chatId, WELCOME, { parse_mode: 'HTML', reply_markup: MENU_KEYBOARD });
     return;
   }
+
+  // The assignment or a correction for «🤖 Новое поручение».
+  if (await handleAiDraftText(prisma, chatId, user, text)) return;
 
   const pending = await prisma.telegramPendingInput.findUnique({
     where: { chat_id: String(chatId) },
