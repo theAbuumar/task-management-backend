@@ -134,6 +134,12 @@ export const envSchema = z
     /** Whole-operation deadline for one AI request, milliseconds. */
     AI_TIMEOUT_MS: z.coerce.number().int().min(5000).max(600000).default(120000),
 
+    // --- Rate limits per signed-in user, per minute (12.B5, plugins/write-limits) ---
+    /** Changes (POST/PATCH/PUT/DELETE) inside workspaces. */
+    RATE_LIMIT_WRITES: z.coerce.number().int().min(1).max(100000).default(300),
+    /** Report and memo exports (PDF, Excel, DOCX). */
+    RATE_LIMIT_EXPORTS: z.coerce.number().int().min(1).max(100000).default(20),
+
     // --- CORS --- (comma-separated origins, or `*`; configured per environment)
     CORS_ORIGIN: z.string().min(1).default('*'),
 

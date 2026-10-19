@@ -23,3 +23,7 @@ process.env.GITHUB_CALLBACK_URL ??= 'http://localhost:3000/api/v1/auth/github/ca
 // are mocked (global fetch); these are never sent anywhere real.
 process.env.TELEGRAM_BOT_TOKEN ??= '123456:test-telegram-bot-token';
 process.env.TELEGRAM_BOT_USERNAME ??= 'test_task_bot';
+// Per-user rate limits (12.B5) far above what any test file does; the limits
+// themselves are tested in tests/rate-limits.test.ts with low values.
+process.env.RATE_LIMIT_WRITES ??= '100000';
+process.env.RATE_LIMIT_EXPORTS ??= '100000';

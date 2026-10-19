@@ -14,6 +14,7 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import writeLimitsPlugin from './plugins/write-limits.js';
 import type { LoggerOptions } from 'pino';
 import { config, isDev } from './config/index.js';
 import errorHandlerPlugin from './plugins/error-handler.js';
@@ -158,6 +159,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // the proxy). On limit the plugin raises a 429 that the error handler renders as
   // the standard RATE_LIMITED envelope (see plugins/error-handler.ts).
   await app.register(rateLimit, { global: false });
+  // Per-user budgets for changes, exports and searches (12.B5); must be in place
+  // before the routes are registered (it hooks onRoute).
+  await app.register(writeLimitsPlugin);
   await app.register(prismaPlugin);
   await app.register(storagePlugin);
   await app.register(authPlugin);
