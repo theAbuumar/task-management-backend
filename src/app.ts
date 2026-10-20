@@ -37,7 +37,7 @@ import { issueRoutes } from './modules/issues/routes.js';
 import { commentRoutes } from './modules/comments/routes.js';
 import { cycleRoutes } from './modules/cycles/routes.js';
 import { moduleRoutes } from './modules/modules/routes.js';
-import { issueRelationRoutes } from './modules/issues/relations/routes.js';
+import { issueRelationRoutes, projectRelationRoutes } from './modules/issues/relations/routes.js';
 import { activityRoutes } from './modules/activity/routes.js';
 import { attachmentRoutes, attachmentDeleteRoutes } from './modules/attachments/routes.js';
 import { notificationRoutes } from './modules/notifications/routes.js';
@@ -216,6 +216,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   });
   await app.register(issueRelationRoutes, {
     prefix: '/api/v1/workspaces/:workspaceSlug/projects/:projectId/issues/:issueId/relations',
+  });
+  await app.register(projectRelationRoutes, {
+    prefix: '/api/v1/workspaces/:workspaceSlug/projects/:projectId/relations',
   });
   await app.register(controlRoutes, {
     prefix: '/api/v1/workspaces/:workspaceSlug/projects/:projectId/issues/:issueId',

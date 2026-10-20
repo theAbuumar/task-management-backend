@@ -10,6 +10,10 @@ export const CreateRelationBodySchema = z.object({
 
 export type CreateRelationBody = z.infer<typeof CreateRelationBodySchema>;
 
+export const ProjectRelationsQuerySchema = z.object({
+  type: z.enum(['blocks', 'relates_to', 'duplicates']).optional(),
+});
+
 // ─── Fastify route schemas ────────────────────────────────────────────────────
 
 const security = [{ bearerAuth: [] }];
@@ -75,4 +79,38 @@ export const deleteRelationSchema: FastifySchema = {
   summary: 'Delete a relation (removes mirror relation too)',
   security,
   response: { 204: { type: 'null' } },
+};
+
+export const listProjectRelationsSchema: FastifySchema = {
+  tags: ['Issue Relations'],
+  summary: 'Relations between the issues of a project, each pair once (timeline)',
+  description:
+    'For the timeline (7.F4): one request instead of one per issue. `blocked_by` mirrors are ' +
+    'left out (read `blocks`), a symmetric pair is returned once, deleted issues and links to ' +
+    'other projects are skipped. `type` narrows to one kind.',
+  security,
+  querystring: {
+    type: 'object',
+    properties: { type: { type: 'string', enum: ['blocks', 'relates_to', 'duplicates'] } },
+  },
+  response: {
+    200: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              issue_id: { type: 'string' },
+              related_issue_id: { type: 'string' },
+              relation_type: { type: 'string', enum: RELATION_TYPES },
+              created_at: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      },
+    },
+  },
 };

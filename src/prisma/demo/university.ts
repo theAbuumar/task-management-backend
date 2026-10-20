@@ -605,6 +605,36 @@ const PROJECTS: ProjectDef[] = [
   },
 ];
 
+// «блокирует» links between a project's issues (7.F4): the timeline draws them
+// as arrows. By title, with no random draws, so the rest of the demo stays the
+// same. The dates follow the links except one — the self-assessment report was
+// started before the staffing data came in — which the timeline shows in red.
+const DEPENDENCIES: Record<string, [blocker: string, blocked: string][]> = {
+  accr: [
+    ['Актуализировать рабочие программы дисциплин', 'Обновить фонды оценочных средств'],
+    [
+      'Подготовить справку о материально-техническом обеспечении',
+      'Подготовить отчёт о самообследовании факультета',
+    ],
+    [
+      'Заполнить мониторинг эффективности программы',
+      'Подготовить отчёт о самообследовании факультета',
+    ],
+    [
+      'Провести внутренний аудит образовательной программы',
+      'Подготовить отчёт о самообследовании факультета',
+    ],
+    [
+      'Провести внутренний аудит образовательной программы',
+      'Проверить электронную информационно-образовательную среду',
+    ],
+    [
+      'Собрать сведения о кадровом обеспечении программ',
+      'Подготовить отчёт о самообследовании факультета',
+    ],
+  ],
+};
+
 const MINUTES_COMMENT = 'Провели совещание, протокол во вложении.';
 const COMMENTS = [
   'Взял(а) в работу, по срокам успеваем.',
@@ -1198,6 +1228,7 @@ export async function seedDemo(
       return { title, assignee, scenario, created: cap(created) };
     });
     planned.sort((a, b) => a.created.getTime() - b.created.getTime());
+    const idByTitle = new Map<string, string>();
 
     for (const [index, plan] of planned.entries()) {
       const { title, assignee, scenario, created } = plan;
@@ -1265,6 +1296,7 @@ export async function seedDemo(
         },
       });
       issueCount += 1;
+      idByTitle.set(title, issue.id);
 
       const assignees = [assignee, ...(coAssignee ? [coAssignee] : [])];
       const reviewer = controller ?? creator;
@@ -1519,6 +1551,18 @@ export async function seedDemo(
         });
       }
     }
+
+    // Each link with its mirror, as POST I/relations stores them.
+    const links = (DEPENDENCIES[def.key] ?? []).flatMap(([blocker, blocked]) => {
+      const a = idByTitle.get(blocker);
+      const b = idByTitle.get(blocked);
+      if (!a || !b) throw new Error(`Demo dependency not found: ${blocker} → ${blocked}`);
+      return [
+        { issue_id: a, related_issue_id: b, relation_type: 'blocks' as const },
+        { issue_id: b, related_issue_id: a, relation_type: 'blocked_by' as const },
+      ];
+    });
+    if (links.length > 0) await prisma.issueLink.createMany({ data: links });
   }
 
   // ─── Рассылки подразделениям (6.B1) ───

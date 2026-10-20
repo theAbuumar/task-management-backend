@@ -103,6 +103,29 @@ describe('demo seed (13.B1)', () => {
     }
   });
 
+  it('the accreditation timeline has «блокирует» links, each with its mirror (7.F4)', async () => {
+    const links = await prisma.issueLink.findMany({
+      where: { issue: { workspace_id: seeded.workspaceId, project: { identifier: 'ACCR' } } },
+      include: {
+        issue: { select: { project_id: true } },
+        related_issue: { select: { project_id: true } },
+      },
+    });
+    const blocks = links.filter((l) => l.relation_type === 'blocks');
+    expect(blocks.length).toBeGreaterThanOrEqual(5);
+    for (const link of blocks) {
+      expect(link.related_issue.project_id).toBe(link.issue.project_id);
+      expect(
+        links.some(
+          (m) =>
+            m.relation_type === 'blocked_by' &&
+            m.issue_id === link.related_issue_id &&
+            m.related_issue_id === link.issue_id,
+        ),
+      ).toBe(true);
+    }
+  });
+
   it('every attachment opens: real PDF and Excel files, report files tied to their hand-in', async () => {
     const files = await prisma.attachment.findMany({
       where: { workspace_id: seeded.workspaceId },

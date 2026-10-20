@@ -174,3 +174,45 @@ export async function deleteRelation(
     });
   });
 }
+
+export interface ProjectLink {
+  id: string;
+  issue_id: string;
+  related_issue_id: string;
+  relation_type: IssueLinkType;
+  created_at: Date;
+}
+
+/**
+ * Relations between issues of one project, each pair once (7.F4: the timeline
+ * draws «блокирует» arrows from one request instead of one per issue). Mirrors
+ * are dropped: `blocked_by` is the other side of `blocks`, and a symmetric pair
+ * (`relates_to`, `duplicates`) keeps the row whose issue id sorts first. Deleted
+ * issues and links to other projects are left out.
+ */
+export async function listProjectRelations(
+  prisma: PrismaClient,
+  workspaceId: string,
+  projectId: string,
+  type?: Exclude<IssueLinkType, 'blocked_by'>,
+): Promise<{ data: ProjectLink[] }> {
+  const inProject = { project_id: projectId, workspace_id: workspaceId, deleted_at: null };
+  const links = await prisma.issueLink.findMany({
+    where: {
+      relation_type: type ?? { not: 'blocked_by' },
+      issue: inProject,
+      related_issue: inProject,
+    },
+    select: {
+      id: true,
+      issue_id: true,
+      related_issue_id: true,
+      relation_type: true,
+      created_at: true,
+    },
+    orderBy: { created_at: 'asc' },
+  });
+  return {
+    data: links.filter((l) => l.relation_type === 'blocks' || l.issue_id < l.related_issue_id),
+  };
+}
