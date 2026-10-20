@@ -438,13 +438,16 @@ model Department {
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
 
-  workspace Workspace         @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
-  parent    Department?       @relation("DepartmentTree", fields: [parent_id], references: [id], onDelete: Cascade)
-  children  Department[]      @relation("DepartmentTree")
-  head      User?             @relation("DepartmentHead", fields: [head_id], references: [id], onDelete: SetNull)
-  members   WorkspaceMember[]
-  projects  Project[]
-  issues    Issue[]
+  workspace      Workspace               @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  parent         Department?             @relation("DepartmentTree", fields: [parent_id], references: [id], onDelete: Cascade)
+  children       Department[]            @relation("DepartmentTree")
+  head           User?                   @relation("DepartmentHead", fields: [head_id], references: [id], onDelete: SetNull)
+  members        WorkspaceMember[]
+  projects       Project[]
+  issues         Issue[]
+  // Invitations that place the newcomer here (staff import, 4.B1).
+  invites        WorkspaceInvite[]       @relation("InviteDepartment")
+  member_invites WorkspaceMemberInvite[] @relation("MemberInviteDepartment")
 
   @@index([workspace_id])
   @@index([parent_id])
@@ -667,6 +670,8 @@ model Comment {
   parent_comment_id String?
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
+  // When the text was last edited («изменено», 4.F8); null if never.
+  edited_at         DateTime?
   deleted_at        DateTime?
 
   issue   Issue     @relation(fields: [issue_id], references: [id], onDelete: Cascade)
@@ -835,13 +840,21 @@ model WorkspaceInvite {
   invited_by_id String
   email         String
   role          WorkspaceRole @default(member)
+  // Place in the org structure and the full name the member gets on accepting —
+  // set by the staff import (4.B1, ADR-031). The name fills an account without one.
+  department_id String?
+  position      String?
+  last_name     String?
+  first_name    String?
+  middle_name   String?
   token         String        @unique @default(uuid())
   expires_at    DateTime
   accepted_at   DateTime?
   created_at    DateTime      @default(now())
 
-  workspace  Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
-  invited_by User      @relation(fields: [invited_by_id], references: [id])
+  workspace  Workspace   @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  invited_by User        @relation(fields: [invited_by_id], references: [id])
+  department Department? @relation("InviteDepartment", fields: [department_id], references: [id], onDelete: SetNull)
 
   @@index([workspace_id])
   @@index([email])
@@ -863,15 +876,19 @@ model WorkspaceMemberInvite {
   inviter_id     String
   target_user_id String
   role           WorkspaceRole      @default(member)
+  // Place in the org structure the member gets on accepting (staff import, 4.B1).
+  department_id  String?
+  position       String?
   status         MemberInviteStatus @default(pending)
   token          String             @unique @default(uuid())
   expires_at     DateTime
   responded_at   DateTime?
   created_at     DateTime           @default(now())
 
-  workspace Workspace @relation("WorkspaceMemberInvites", fields: [workspace_id], references: [id], onDelete: Cascade)
-  inviter   User      @relation("MemberInviteInviter", fields: [inviter_id], references: [id])
-  target    User      @relation("MemberInviteTarget", fields: [target_user_id], references: [id], onDelete: Cascade)
+  workspace  Workspace   @relation("WorkspaceMemberInvites", fields: [workspace_id], references: [id], onDelete: Cascade)
+  inviter    User        @relation("MemberInviteInviter", fields: [inviter_id], references: [id])
+  target     User        @relation("MemberInviteTarget", fields: [target_user_id], references: [id], onDelete: Cascade)
+  department Department? @relation("MemberInviteDepartment", fields: [department_id], references: [id], onDelete: SetNull)
 
   @@index([target_user_id, status])
   @@index([workspace_id])

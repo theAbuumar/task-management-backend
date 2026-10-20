@@ -181,7 +181,13 @@ const issueShape = {
     distribution: { type: 'object', additionalProperties: true },
     controller: { type: 'object', nullable: true, additionalProperties: true },
     state: { type: 'object', additionalProperties: true },
-    // { watchers, deadline_changes } — approved deadline moves count as "переносы".
+    // Cycle (этап) the issue is in (4.F3).
+    cycle_id: { type: 'string', nullable: true },
+    // Modules it is in (4.F4): [{ module_id }].
+    modules: { type: 'array', items: { type: 'object', additionalProperties: true } },
+    // { watchers, deadline_requests, children, outgoing_links }: deadline_requests —
+    // approved deadline moves («переносы»); children — sub-issues not in the trash;
+    // outgoing_links — open blockers (the issue is «заблокирована» when > 0, ADR-031).
     _count: { type: 'object', additionalProperties: true },
     sort_order: { type: 'number' },
     created_at: { type: 'string', format: 'date-time' },

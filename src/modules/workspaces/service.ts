@@ -5,6 +5,7 @@ import type { StorageDriver } from '../../lib/storage.js';
 import { sendInviteEmail } from '../../lib/email.js';
 import { frontendUrl } from '../../lib/urls.js';
 import { departmentSubtreeIds } from '../departments/service.js';
+import { assertDepartment } from '../member-invites/service.js';
 import type {
   CreateWorkspaceBody,
   UpdateWorkspaceBody,
@@ -141,23 +142,40 @@ export async function listMembers(
   });
 }
 
+/**
+ * Add a registered person right away, without an invitation (4.F10, ADR-031): by
+ * id or by email, with their place in the org structure.
+ */
 export async function addMember(
   prisma: PrismaClient,
   workspaceId: string,
   body: AddMemberBody,
 ): Promise<WorkspaceMember> {
-  const user = await prisma.user.findUnique({ where: { id: body.user_id } });
-  if (!user) throw AppError.notFound('User not found');
+  const user = body.user_id
+    ? await prisma.user.findUnique({ where: { id: body.user_id } })
+    : await prisma.user.findFirst({
+        where: { email: { equals: body.email!, mode: 'insensitive' } },
+      });
+  if (!user || !user.is_active) {
+    throw new AppError(404, 'USER_NOT_FOUND', 'There is no account with this email');
+  }
+  if (body.department_id) await assertDepartment(prisma, workspaceId, body.department_id);
 
   const existing = await prisma.workspaceMember.findUnique({
-    where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: body.user_id } },
+    where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: user.id } },
   });
   if (existing) {
     throw new AppError(409, 'ALREADY_MEMBER', 'User is already a member of this workspace');
   }
 
   return prisma.workspaceMember.create({
-    data: { workspace_id: workspaceId, user_id: body.user_id, role: body.role },
+    data: {
+      workspace_id: workspaceId,
+      user_id: user.id,
+      role: body.role,
+      department_id: body.department_id ?? null,
+      position: body.position || null,
+    },
     include: MEMBER_INCLUDE,
   });
 }
@@ -290,6 +308,8 @@ export async function inviteMember(
     },
   });
 
+  if (body.department_id) await assertDepartment(prisma, workspaceId, body.department_id);
+
   const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
   const invite = await prisma.workspaceInvite.create({
     data: {
@@ -297,6 +317,11 @@ export async function inviteMember(
       invited_by_id: inviterId,
       email: body.email,
       role: body.role,
+      department_id: body.department_id ?? null,
+      position: body.position || null,
+      last_name: body.last_name || null,
+      first_name: body.first_name || null,
+      middle_name: body.middle_name || null,
       expires_at: expiresAt,
     },
   });

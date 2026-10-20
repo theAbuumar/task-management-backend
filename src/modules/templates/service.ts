@@ -144,9 +144,11 @@ export async function listTemplates(
       ],
     },
     include: INCLUDE,
-    // Workspace templates first, then by name.
-    orderBy: [{ project_id: { sort: 'asc', nulls: 'first' } }, { name: 'asc' }],
   });
+  // Workspace templates first, then by name — whatever project a template is in
+  // (ordering by project_id put them in random project order).
+  const scope = (r: { project_id: string | null }) => (r.project_id === null ? 0 : 1);
+  rows.sort((a, b) => scope(a) - scope(b) || a.name.localeCompare(b.name, 'ru'));
   return { data: rows.map((r) => shape(r, member)) };
 }
 

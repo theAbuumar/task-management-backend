@@ -13,6 +13,9 @@ export const InviteExistingUserBodySchema = z
     user_id: z.string().uuid().optional(),
     email: z.string().email().optional(),
     role: z.enum(['admin', 'member', 'guest']).default('member'),
+    // The place in the org structure the member gets on accepting (4.F10, 4.B1).
+    department_id: z.string().uuid().optional().nullable(),
+    position: z.string().trim().max(150).optional().nullable(),
   })
   .refine((v) => Boolean(v.user_id) !== Boolean(v.email), {
     message: 'Provide exactly one of user_id or email',
@@ -145,6 +148,18 @@ export const inviteExistingUserSchema: FastifySchema = {
         enum: ['admin', 'member', 'guest'],
         default: 'member',
         description: 'Role granted on accept (owner is not assignable here)',
+      },
+      department_id: {
+        type: 'string',
+        format: 'uuid',
+        nullable: true,
+        description: 'Department the member is placed in on accepting',
+      },
+      position: {
+        type: 'string',
+        maxLength: 150,
+        nullable: true,
+        description: 'Position set on accepting',
       },
     },
   },

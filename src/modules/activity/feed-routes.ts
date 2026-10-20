@@ -30,9 +30,11 @@ export async function workspaceActivityRoutes(app: FastifyInstance): Promise<voi
           'works there). Others get 403 ACTIVITY_FORBIDDEN. Filters combine with AND: `project`, ' +
           '`department` (with subtree), `actor`, `from`/`to` (local dates in the workspace time zone, ' +
           'inclusive) and `type` (several = any of them): created, state, review (hand-ins, decisions, ' +
-          'acknowledgements), deadline, people (assignees, controller), comments, files, trash. Rows ' +
-          'about a trashed task stay, with `issue.deleted_at`. `old_label`/`new_label` carry the name ' +
-          'of a state, person or label the value refers to.',
+          'acknowledgements), deadline, people (assignees, controller), comments, files, checklist, ' +
+          'trash, structure (cycle, modules, parent, relations — 4.F3–4.F7). Rows about a trashed task ' +
+          'stay, with `issue.deleted_at`. `old_label`/`new_label` carry the name of a state, person, ' +
+          'label, cycle or module the value refers to, or «KEY-12 title» of another issue when the ' +
+          'viewer can see it.',
         security: [{ bearerAuth: [] }],
         params: { type: 'object', properties: { workspaceSlug: { type: 'string' } } },
         querystring: {

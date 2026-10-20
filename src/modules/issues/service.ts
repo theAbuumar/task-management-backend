@@ -69,10 +69,21 @@ type IssueWithRelations = Prisma.IssueGetPayload<{
     controller: { select: { id: true; email: true; display_name: true; avatar_url: true } };
     department: { select: { id: true; name: true; short_name: true } };
     state: { select: { id: true; name: true; group: true; color: true } };
+    modules: { select: { module_id: true } };
     _count: {
       select: {
         watchers: true;
         deadline_requests: { where: { status: 'approved' } };
+        children: { where: { deleted_at: null } };
+        outgoing_links: {
+          where: {
+            relation_type: 'blocked_by';
+            related_issue: {
+              deleted_at: null;
+              state: { group: { notIn: ['completed', 'cancelled'] } };
+            };
+          };
+        };
       };
     };
   };
@@ -90,10 +101,24 @@ export const INCLUDE_RELATIONS = {
   controller: { select: USER_BRIEF },
   department: { select: { id: true, name: true, short_name: true } },
   state: { select: { id: true, name: true, group: true, color: true } },
+  // Modules the issue is in (4.F4); its cycle is the scalar `cycle_id`.
+  modules: { select: { module_id: true } },
   _count: {
     select: {
       watchers: true,
       deadline_requests: { where: { status: 'approved' } },
+      // Sub-issues not in the trash (4.F7).
+      children: { where: { deleted_at: null } },
+      // Open blockers (4.F6, ADR-031): «blocked_by» links to issues still to be done.
+      outgoing_links: {
+        where: {
+          relation_type: 'blocked_by',
+          related_issue: {
+            deleted_at: null,
+            state: { group: { notIn: ['completed', 'cancelled'] } },
+          },
+        },
+      },
     },
   },
 } satisfies Prisma.IssueInclude;
@@ -152,6 +177,34 @@ async function resolveIssue(
   });
   if (!issue) throw AppError.notFound('Issue not found');
   return issue;
+}
+
+function distributionChild(): AppError {
+  return new AppError(
+    400,
+    'DISTRIBUTION_CHILD',
+    'A distribution has only its department parts as sub-issues, and they stay under it',
+  );
+}
+
+/**
+ * A parent for a sub-issue (4.F7, ADR-031): an issue of the same project, not in
+ * the trash, not a sub-issue itself (single level) and not a distribution — its
+ * sub-issues are the department parts only.
+ */
+async function assertParent(
+  prisma: PrismaClient,
+  projectId: string,
+  parentId: string,
+): Promise<void> {
+  const parent = await prisma.issue.findFirst({
+    where: { id: parentId, project_id: projectId, deleted_at: null },
+    select: { parent_id: true, is_distribution: true },
+  });
+  if (!parent) throw AppError.badRequest('parent_id does not exist in this project');
+  if (parent.parent_id)
+    throw AppError.badRequest('Sub-issues cannot have sub-issues (single level only)');
+  if (parent.is_distribution) throw distributionChild();
 }
 
 /** Next sequence_id for a project — use inside a serializable transaction. */
@@ -417,15 +470,7 @@ export async function createIssue(
   });
   if (!state) throw AppError.badRequest('state_id does not belong to this project');
 
-  // Validate parent (single-level only).
-  if (body.parent_id) {
-    const parent = await prisma.issue.findFirst({
-      where: { id: body.parent_id, project_id: projectId, deleted_at: null },
-    });
-    if (!parent) throw AppError.badRequest('parent_id does not exist in this project');
-    if (parent.parent_id)
-      throw AppError.badRequest('Sub-issues cannot have sub-issues (single level only)');
-  }
+  if (body.parent_id) await assertParent(prisma, projectId, body.parent_id);
 
   if (body.controller_id) {
     await assertAssignable(prisma, workspaceId, [body.controller_id], 'controller_id');
@@ -618,14 +663,29 @@ export async function updateIssue(
     throw AppError.badRequest('primary_assignee_id must be an assignee of this issue');
   }
 
-  if (body.parent_id) {
-    if (body.parent_id === issueId) throw AppError.badRequest('An issue cannot be its own parent');
-    const parent = await prisma.issue.findFirst({
-      where: { id: body.parent_id, project_id: projectId, deleted_at: null },
-    });
-    if (!parent) throw AppError.badRequest('parent_id does not exist in this project');
-    if (parent.parent_id)
-      throw AppError.badRequest('Sub-issues cannot have sub-issues (single level only)');
+  if (body.parent_id !== undefined && body.parent_id !== before.parent_id) {
+    // A department part of a distribution stays under it (ADR-031).
+    if (before.parent_id) {
+      const current = await prisma.issue.findUnique({
+        where: { id: before.parent_id },
+        select: { is_distribution: true },
+      });
+      if (current?.is_distribution) throw distributionChild();
+    }
+    if (body.parent_id) {
+      if (body.parent_id === issueId)
+        throw AppError.badRequest('An issue cannot be its own parent');
+      await assertParent(prisma, projectId, body.parent_id);
+      // Single level: an issue with sub-issues cannot become one.
+      const children = await prisma.issue.count({
+        where: { parent_id: issueId, deleted_at: null },
+      });
+      if (children > 0) {
+        throw AppError.badRequest(
+          'An issue with sub-issues cannot become a sub-issue (single level only)',
+        );
+      }
+    }
   }
 
   const completedAt = body.state_id

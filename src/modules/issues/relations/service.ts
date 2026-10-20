@@ -1,34 +1,32 @@
-import type { PrismaClient, IssueLinkType, Prisma } from '@prisma/client';
+import type { PrismaClient, IssueLinkType, Prisma, WorkspaceMember } from '@prisma/client';
 import { AppError } from '../../../lib/errors.js';
+import { recordActivities, ACTIVITY_ACTIONS } from '../../../lib/activity.js';
+import { visibleIssuesWhere } from '../scope.js';
 import type { CreateRelationBody } from './schema.js';
 
-type LinkWithRelated = Prisma.IssueLinkGetPayload<{
-  include: {
-    related_issue: {
-      select: {
-        id: true;
-        sequence_id: true;
-        title: true;
-        priority: true;
-        state_id: true;
-        project_id: true;
-      };
-    };
-  };
-}>;
+// Links between issues (4.F6, ADR-031): «блокирует / блокируется», «связана»,
+// «дубликат». Each link is stored twice (with its mirror), so either issue lists
+// it. A link only reaches an issue the viewer can see: an issue of someone else's
+// private project or one in the trash is never linked to or listed.
 
-const INCLUDE_RELATED = {
-  related_issue: {
-    select: {
-      id: true,
-      sequence_id: true,
-      title: true,
-      priority: true,
-      state_id: true,
-      project_id: true,
-    },
+type Viewer = Pick<WorkspaceMember, 'user_id' | 'role'>;
+
+const RELATED_ISSUE = {
+  select: {
+    id: true,
+    sequence_id: true,
+    title: true,
+    priority: true,
+    state_id: true,
+    project_id: true,
+    project: { select: { id: true, identifier: true, name: true } },
+    state: { select: { id: true, name: true, group: true, color: true } },
   },
 } as const;
+
+const INCLUDE_RELATED = { related_issue: RELATED_ISSUE } as const;
+
+type LinkWithRelated = Prisma.IssueLinkGetPayload<{ include: typeof INCLUDE_RELATED }>;
 
 /** The mirror relation to create when one side is created or deleted. */
 function mirrorType(type: IssueLinkType): IssueLinkType {
@@ -62,11 +60,12 @@ export async function listRelations(
   workspaceId: string,
   projectId: string,
   issueId: string,
+  viewer: Viewer,
 ): Promise<GroupedRelations> {
   await resolveIssue(prisma, workspaceId, projectId, issueId);
 
   const links = await prisma.issueLink.findMany({
-    where: { issue_id: issueId },
+    where: { issue_id: issueId, related_issue: visibleIssuesWhere(workspaceId, viewer) },
     include: INCLUDE_RELATED,
     orderBy: { created_at: 'asc' },
   });
@@ -85,6 +84,7 @@ export async function createRelation(
   projectId: string,
   issueId: string,
   body: CreateRelationBody,
+  viewer: Viewer,
 ): Promise<LinkWithRelated> {
   await resolveIssue(prisma, workspaceId, projectId, issueId);
 
@@ -92,9 +92,9 @@ export async function createRelation(
     throw AppError.badRequest('An issue cannot be related to itself');
   }
 
-  // Related issue must exist in the same workspace (cross-project relations are allowed).
+  // Any issue of the workspace the viewer sees — other projects included.
   const relatedIssue = await prisma.issue.findFirst({
-    where: { id: body.related_issue_id, workspace_id: workspaceId, deleted_at: null },
+    where: { id: body.related_issue_id, ...visibleIssuesWhere(workspaceId, viewer) },
     select: { id: true },
   });
   if (!relatedIssue) throw AppError.notFound('Related issue not found in this workspace');
@@ -141,6 +141,25 @@ export async function createRelation(
       update: {},
     });
 
+    await recordActivities(tx, [
+      {
+        workspace_id: workspaceId,
+        issue_id: issueId,
+        actor_id: viewer.user_id,
+        action: ACTIVITY_ACTIONS.RELATION_ADDED,
+        field: relType,
+        new_value: body.related_issue_id,
+      },
+      {
+        workspace_id: workspaceId,
+        issue_id: body.related_issue_id,
+        actor_id: viewer.user_id,
+        action: ACTIVITY_ACTIONS.RELATION_ADDED,
+        field: mirror,
+        new_value: issueId,
+      },
+    ]);
+
     return link;
   });
 }
@@ -151,6 +170,7 @@ export async function deleteRelation(
   projectId: string,
   issueId: string,
   linkId: string,
+  viewer: Viewer,
 ): Promise<void> {
   await resolveIssue(prisma, workspaceId, projectId, issueId);
 
@@ -172,6 +192,25 @@ export async function deleteRelation(
         relation_type: mirror,
       },
     });
+
+    await recordActivities(tx, [
+      {
+        workspace_id: workspaceId,
+        issue_id: issueId,
+        actor_id: viewer.user_id,
+        action: ACTIVITY_ACTIONS.RELATION_REMOVED,
+        field: link.relation_type,
+        old_value: link.related_issue_id,
+      },
+      {
+        workspace_id: workspaceId,
+        issue_id: link.related_issue_id,
+        actor_id: viewer.user_id,
+        action: ACTIVITY_ACTIONS.RELATION_REMOVED,
+        field: mirror,
+        old_value: issueId,
+      },
+    ]);
   });
 }
 

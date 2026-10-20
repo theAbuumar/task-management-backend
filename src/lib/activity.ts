@@ -47,6 +47,14 @@ export const ACTIVITY_ACTIONS = {
   CHECKLIST_UNCHECKED: 'issue.checklist_unchecked',
   CHECKLIST_UPDATED: 'issue.checklist_updated',
   CHECKLIST_REMOVED: 'issue.checklist_removed',
+  // Modules (4.F4): the module id is in new_value (old_value when removed).
+  MODULE_ADDED: 'issue.module_added',
+  MODULE_REMOVED: 'issue.module_removed',
+  // Relations (4.F6): `field` is the relation type as seen from this issue
+  // (blocks / blocked_by / relates_to / duplicates), the other issue's id is in
+  // new_value (old_value when removed). Both issues get an entry.
+  RELATION_ADDED: 'issue.relation_added',
+  RELATION_REMOVED: 'issue.relation_removed',
 } as const;
 
 export interface ActivityEntry {

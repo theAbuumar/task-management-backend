@@ -17,6 +17,19 @@ import type { InviteExistingUserBody } from './schema.js';
 
 const INVITE_TTL_DAYS = 7;
 
+/** A department named in an invitation must be one of this workspace. */
+export async function assertDepartment(
+  prisma: PrismaClient,
+  workspaceId: string,
+  departmentId: string,
+): Promise<void> {
+  const found = await prisma.department.findFirst({
+    where: { id: departmentId, workspace_id: workspaceId },
+    select: { id: true },
+  });
+  if (!found) throw AppError.badRequest('department_id does not belong to this workspace');
+}
+
 export type InviteChannel = 'email' | 'telegram';
 
 export interface InviteDeliveryResult {
@@ -51,6 +64,7 @@ export async function inviteExistingUser(
   if (!target || !target.is_active) throw AppError.notFound('User not found');
 
   if (target.id === inviterId) throw AppError.badRequest('You cannot invite yourself');
+  if (body.department_id) await assertDepartment(prisma, workspaceId, body.department_id);
 
   const existingMember = await prisma.workspaceMember.findUnique({
     where: { workspace_id_user_id: { workspace_id: workspaceId, user_id: target.id } },
@@ -72,6 +86,8 @@ export async function inviteExistingUser(
       inviter_id: inviterId,
       target_user_id: target.id,
       role: body.role,
+      department_id: body.department_id ?? null,
+      position: body.position || null,
       expires_at: expiresAt,
     },
   });
@@ -274,6 +290,8 @@ async function applyResponse(
           workspace_id: invite.workspace_id,
           user_id: invite.target_user_id,
           role: invite.role,
+          department_id: invite.department_id,
+          position: invite.position,
         },
       }));
     return { invite: updated, member };

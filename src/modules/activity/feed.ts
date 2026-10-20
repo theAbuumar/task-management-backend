@@ -6,8 +6,8 @@
 //
 // Rows come from the same ActivityLog as an issue's history. A row about a task
 // in the trash stays in the feed (marked `deleted_at`), so «кто удалил» is seen.
-// Ids in old/new values (state, person, label) are resolved to names here: the
-// feed spans projects whose states and labels the client has not loaded.
+// Ids in old/new values (state, person, label, cycle, module, another issue) are
+// resolved to names here: the feed spans projects the client has not loaded.
 
 import { z } from 'zod';
 import type { Prisma, PrismaClient, Workspace, WorkspaceMember } from '@prisma/client';
@@ -28,6 +28,8 @@ export const FEED_TYPES = [
   'files',
   'checklist',
   'trash',
+  // Cycles, modules, sub-issues and relations (4.F3–4.F7).
+  'structure',
 ] as const;
 export type FeedType = (typeof FEED_TYPES)[number];
 
@@ -64,6 +66,21 @@ const TYPE_WHERE: Record<FeedType, Prisma.ActivityLogWhereInput> = {
   files: { action: { in: ['issue.attachment_added', 'issue.attachment_removed'] } },
   checklist: { action: { startsWith: 'issue.checklist_' } },
   trash: { action: { in: ['issue.deleted', 'issue.restored'] } },
+  structure: {
+    OR: [
+      { action: 'issue.updated', field: { in: ['cycle_id', 'parent_id'] } },
+      {
+        action: {
+          in: [
+            'issue.module_added',
+            'issue.module_removed',
+            'issue.relation_added',
+            'issue.relation_removed',
+          ],
+        },
+      },
+    ],
+  },
 };
 
 const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected a date like 2026-10-31');
@@ -107,28 +124,48 @@ const INCLUDE = {
 type Row = Prisma.ActivityLogGetPayload<{ include: typeof INCLUDE }>;
 export type FeedItem = Row & { old_label: string | null; new_label: string | null };
 
+type RefKind = 'state' | 'person' | 'label' | 'cycle' | 'module' | 'issue';
+
 /** Which of old/new value holds an id of what. */
-function refKind(row: {
-  action: string;
-  field: string | null;
-}): 'state' | 'person' | 'label' | null {
+function refKind(row: { action: string; field: string | null }): RefKind | null {
   if (row.action === 'issue.updated' && row.field === 'state_id') return 'state';
   if (row.action === 'issue.updated' && row.field === 'controller_id') return 'person';
+  if (row.action === 'issue.updated' && row.field === 'cycle_id') return 'cycle';
+  if (row.action === 'issue.updated' && row.field === 'parent_id') return 'issue';
   if (row.action === 'issue.assignee_added' || row.action === 'issue.assignee_removed')
     return 'person';
   if (row.action === 'issue.label_added' || row.action === 'issue.label_removed') return 'label';
+  if (row.action === 'issue.module_added' || row.action === 'issue.module_removed') return 'module';
+  if (row.action === 'issue.relation_added' || row.action === 'issue.relation_removed')
+    return 'issue';
   return null;
 }
 
-/** Old and new values that are ids → their names (state, person, label), one query per kind. */
-async function resolveLabels(prisma: PrismaClient, rows: Row[]): Promise<FeedItem[]> {
-  const wanted = { state: new Set<string>(), person: new Set<string>(), label: new Set<string>() };
+/**
+ * Old and new values that are ids → their names, one query per kind. Another
+ * issue (a relation, a parent) is named «ABC-12 Название» only when the viewer
+ * can see it; otherwise its label stays null.
+ */
+async function resolveLabels(
+  prisma: PrismaClient,
+  rows: Row[],
+  workspaceId: string,
+  viewer: WorkspaceMember,
+): Promise<FeedItem[]> {
+  const wanted: Record<RefKind, Set<string>> = {
+    state: new Set(),
+    person: new Set(),
+    label: new Set(),
+    cycle: new Set(),
+    module: new Set(),
+    issue: new Set(),
+  };
   for (const row of rows) {
     const kind = refKind(row);
     if (!kind) continue;
     for (const v of [row.old_value, row.new_value]) if (v) wanted[kind].add(v);
   }
-  const [states, people, labels] = await Promise.all([
+  const [states, people, labels, cycles, modules, issues] = await Promise.all([
     wanted.state.size
       ? prisma.state.findMany({
           where: { id: { in: [...wanted.state] } },
@@ -147,11 +184,43 @@ async function resolveLabels(prisma: PrismaClient, rows: Row[]): Promise<FeedIte
           select: { id: true, name: true },
         })
       : [],
+    wanted.cycle.size
+      ? prisma.cycle.findMany({
+          where: { id: { in: [...wanted.cycle] } },
+          select: { id: true, name: true },
+        })
+      : [],
+    wanted.module.size
+      ? prisma.module.findMany({
+          where: { id: { in: [...wanted.module] } },
+          select: { id: true, name: true },
+        })
+      : [],
+    wanted.issue.size
+      ? prisma.issue.findMany({
+          where: {
+            id: { in: [...wanted.issue] },
+            ...visibleIssuesWhere(workspaceId, viewer),
+            deleted_at: undefined,
+          },
+          select: {
+            id: true,
+            sequence_id: true,
+            title: true,
+            project: { select: { identifier: true } },
+          },
+        })
+      : [],
   ]);
-  const names = {
+  const names: Record<RefKind, Map<string, string>> = {
     state: new Map(states.map((s) => [s.id, s.name])),
     person: new Map(people.map((p) => [p.id, p.display_name])),
     label: new Map(labels.map((l) => [l.id, l.name])),
+    cycle: new Map(cycles.map((c) => [c.id, c.name])),
+    module: new Map(modules.map((m) => [m.id, m.name])),
+    issue: new Map(
+      issues.map((i) => [i.id, `${i.project.identifier}-${i.sequence_id} ${i.title}`]),
+    ),
   };
   return rows.map((row) => {
     const kind = refKind(row);
@@ -226,7 +295,7 @@ export async function listWorkspaceActivity(
   const hasMore = rows.length > query.limit;
   const page = hasMore ? rows.slice(0, query.limit) : rows;
   return {
-    data: await resolveLabels(prisma, page),
+    data: await resolveLabels(prisma, page, workspace.id, member),
     next_cursor: hasMore ? (page[page.length - 1]?.id ?? null) : null,
   };
 }

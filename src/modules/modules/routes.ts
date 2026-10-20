@@ -22,13 +22,15 @@ import {
 
 export async function moduleRoutes(app: FastifyInstance): Promise<void> {
   const member = [authenticate, requireWorkspaceMember()];
+  // Members run modules; deleting one is an admin's call (ADR-031).
+  const admin = [authenticate, requireWorkspaceMember('admin')];
 
   app.get('/', { schema: listModulesSchema, preHandler: member }, listModulesHandler);
   app.post('/', { schema: createModuleSchema, preHandler: member }, createModuleHandler);
 
   app.get('/:moduleId', { schema: getModuleSchema, preHandler: member }, getModuleHandler);
   app.patch('/:moduleId', { schema: updateModuleSchema, preHandler: member }, updateModuleHandler);
-  app.delete('/:moduleId', { schema: deleteModuleSchema, preHandler: member }, deleteModuleHandler);
+  app.delete('/:moduleId', { schema: deleteModuleSchema, preHandler: admin }, deleteModuleHandler);
 
   // Issue membership
   app.post(

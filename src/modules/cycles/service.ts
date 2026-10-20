@@ -1,33 +1,34 @@
 import type { PrismaClient, Cycle } from '@prisma/client';
 import { AppError } from '../../lib/errors.js';
+import { recordActivities, ACTIVITY_ACTIONS } from '../../lib/activity.js';
+import { cycleProgress, emptyProgress, type GroupProgress } from '../../lib/progress.js';
+import { localDate } from '../../lib/tz.js';
 import type { CreateCycleBody, UpdateCycleBody } from './schema.js';
+
+// Этапы (Cycles, ADR-021, ADR-031): a period of a project with its issues. An
+// issue is in at most one cycle; adding it to another moves it. Every move is
+// recorded in the issue's history (field `cycle_id`).
 
 type CycleStatus = 'upcoming' | 'active' | 'completed';
 
-export type CycleWithStatus = Cycle & { status: CycleStatus };
+export type CycleProgress = GroupProgress;
 
-export interface CycleProgress {
-  total: number;
-  backlog: number;
-  unstarted: number;
-  started: number;
-  review: number;
-  completed: number;
-  cancelled: number;
-  completion_percentage: number;
-}
+export type CycleView = Cycle & { status: CycleStatus; progress: CycleProgress };
 
-export type CycleDetail = CycleWithStatus & { progress: CycleProgress };
-
-function computeStatus(startDate: Date | null, endDate: Date | null): CycleStatus {
-  const now = new Date();
-  if (endDate && endDate < now) return 'completed';
-  if (startDate && startDate > now) return 'upcoming';
+/** Status by the dates as days of the workspace time zone (ADR-012): the end day counts. */
+function computeStatus(cycle: Cycle, timeZone: string, now = new Date()): CycleStatus {
+  const today = localDate(now, timeZone);
+  if (cycle.end_date && localDate(cycle.end_date, timeZone) < today) return 'completed';
+  if (cycle.start_date && localDate(cycle.start_date, timeZone) > today) return 'upcoming';
   return 'active';
 }
 
-function withStatus(cycle: Cycle): CycleWithStatus {
-  return { ...cycle, status: computeStatus(cycle.start_date, cycle.end_date) };
+async function workspaceZone(prisma: PrismaClient, workspaceId: string): Promise<string> {
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { timezone: true },
+  });
+  return ws?.timezone ?? 'UTC';
 }
 
 async function resolveProject(
@@ -41,29 +42,58 @@ async function resolveProject(
   if (!project) throw AppError.notFound('Project not found');
 }
 
+/** The cycle of this project — a cycle of another project answers 404 (its project may be private). */
 async function resolveCycle(
   prisma: PrismaClient,
   workspaceId: string,
+  projectId: string,
   cycleId: string,
 ): Promise<Cycle> {
   const cycle = await prisma.cycle.findFirst({
-    where: { id: cycleId, workspace_id: workspaceId },
+    where: { id: cycleId, workspace_id: workspaceId, project_id: projectId },
   });
   if (!cycle) throw AppError.notFound('Cycle not found');
   return cycle;
+}
+
+function assertDates(start: Date | null, end: Date | null): void {
+  if (start && end && end < start) {
+    throw AppError.badRequest('end_date must not be before start_date');
+  }
+}
+
+const toDate = (v: string | null | undefined) => (v ? new Date(v) : null);
+
+async function views(
+  prisma: PrismaClient,
+  workspaceId: string,
+  cycles: Cycle[],
+): Promise<CycleView[]> {
+  const [zone, progress] = await Promise.all([
+    workspaceZone(prisma, workspaceId),
+    cycleProgress(
+      prisma,
+      cycles.map((c) => c.id),
+    ),
+  ]);
+  return cycles.map((c) => ({
+    ...c,
+    status: computeStatus(c, zone),
+    progress: progress.get(c.id) ?? emptyProgress(),
+  }));
 }
 
 export async function listCycles(
   prisma: PrismaClient,
   workspaceId: string,
   projectId: string,
-): Promise<CycleWithStatus[]> {
+): Promise<CycleView[]> {
   await resolveProject(prisma, workspaceId, projectId);
   const cycles = await prisma.cycle.findMany({
     where: { project_id: projectId },
-    orderBy: { created_at: 'asc' },
+    orderBy: [{ start_date: { sort: 'asc', nulls: 'last' } }, { created_at: 'asc' }],
   });
-  return cycles.map(withStatus);
+  return views(prisma, workspaceId, cycles);
 }
 
 export async function createCycle(
@@ -71,101 +101,86 @@ export async function createCycle(
   workspaceId: string,
   projectId: string,
   body: CreateCycleBody,
-): Promise<CycleWithStatus> {
+): Promise<CycleView> {
   await resolveProject(prisma, workspaceId, projectId);
+  const start = toDate(body.start_date);
+  const end = toDate(body.end_date);
+  assertDates(start, end);
   const cycle = await prisma.cycle.create({
     data: {
       workspace_id: workspaceId,
       project_id: projectId,
       name: body.name,
       description: body.description ?? null,
-      start_date: body.start_date ? new Date(body.start_date) : null,
-      end_date: body.end_date ? new Date(body.end_date) : null,
+      start_date: start,
+      end_date: end,
     },
   });
-  return withStatus(cycle);
+  return (await views(prisma, workspaceId, [cycle]))[0]!;
 }
 
 export async function getCycle(
   prisma: PrismaClient,
   workspaceId: string,
+  projectId: string,
   cycleId: string,
-): Promise<CycleDetail> {
-  const cycle = await resolveCycle(prisma, workspaceId, cycleId);
-
-  // Aggregate issue counts by state group in a single query.
-  const groupCounts = await prisma.issue.groupBy({
-    by: ['state_id'],
-    where: { cycle_id: cycleId, deleted_at: null },
-    _count: { id: true },
-  });
-
-  // Fetch state groups for the counted state IDs.
-  const stateIds = groupCounts.map((g) => g.state_id);
-  const states = await prisma.state.findMany({
-    where: { id: { in: stateIds } },
-    select: { id: true, group: true },
-  });
-  const stateGroupMap = new Map(states.map((s) => [s.id, s.group]));
-
-  const progress: CycleProgress = {
-    total: 0,
-    backlog: 0,
-    unstarted: 0,
-    started: 0,
-    review: 0,
-    completed: 0,
-    cancelled: 0,
-    completion_percentage: 0,
-  };
-
-  for (const gc of groupCounts) {
-    const count = gc._count.id;
-    const group = stateGroupMap.get(gc.state_id);
-    progress.total += count;
-    if (group) progress[group] += count;
-  }
-
-  if (progress.total > 0) {
-    progress.completion_percentage = Math.round(
-      ((progress.completed + progress.cancelled) / progress.total) * 100,
-    );
-  }
-
-  return { ...withStatus(cycle), progress };
+): Promise<CycleView> {
+  const cycle = await resolveCycle(prisma, workspaceId, projectId, cycleId);
+  return (await views(prisma, workspaceId, [cycle]))[0]!;
 }
 
 export async function updateCycle(
   prisma: PrismaClient,
   workspaceId: string,
+  projectId: string,
   cycleId: string,
   body: UpdateCycleBody,
-): Promise<CycleWithStatus> {
-  await resolveCycle(prisma, workspaceId, cycleId);
+): Promise<CycleView> {
+  const cycle = await resolveCycle(prisma, workspaceId, projectId, cycleId);
+  const start = body.start_date !== undefined ? toDate(body.start_date) : cycle.start_date;
+  const end = body.end_date !== undefined ? toDate(body.end_date) : cycle.end_date;
+  assertDates(start, end);
   const updated = await prisma.cycle.update({
     where: { id: cycleId },
     data: {
       ...(body.name !== undefined && { name: body.name }),
       ...(body.description !== undefined && { description: body.description }),
-      ...(body.start_date !== undefined && {
-        start_date: body.start_date ? new Date(body.start_date) : null,
-      }),
-      ...(body.end_date !== undefined && {
-        end_date: body.end_date ? new Date(body.end_date) : null,
-      }),
+      ...(body.start_date !== undefined && { start_date: start }),
+      ...(body.end_date !== undefined && { end_date: end }),
     },
   });
-  return withStatus(updated);
+  return (await views(prisma, workspaceId, [updated]))[0]!;
 }
 
+/** Delete a cycle (admin+, by route); its issues stay, out of any cycle. */
 export async function deleteCycle(
   prisma: PrismaClient,
   workspaceId: string,
+  projectId: string,
   cycleId: string,
+  actorId: string,
 ): Promise<void> {
-  await resolveCycle(prisma, workspaceId, cycleId);
-  // Issues' cycle_id will be set to null via onDelete: SetNull in the schema.
-  await prisma.cycle.delete({ where: { id: cycleId } });
+  await resolveCycle(prisma, workspaceId, projectId, cycleId);
+  const issues = await prisma.issue.findMany({
+    where: { cycle_id: cycleId, deleted_at: null },
+    select: { id: true },
+  });
+  await prisma.$transaction(async (tx) => {
+    // Issues' cycle_id is set to null by onDelete: SetNull.
+    await tx.cycle.delete({ where: { id: cycleId } });
+    await recordActivities(
+      tx,
+      issues.map((i) => ({
+        workspace_id: workspaceId,
+        issue_id: i.id,
+        actor_id: actorId,
+        action: ACTIVITY_ACTIONS.ISSUE_UPDATED,
+        field: 'cycle_id',
+        old_value: cycleId,
+        new_value: null,
+      })),
+    );
+  });
 }
 
 export async function addIssuesToCycle(
@@ -174,26 +189,42 @@ export async function addIssuesToCycle(
   projectId: string,
   cycleId: string,
   issueIds: string[],
+  actorId: string,
 ): Promise<{ added: number }> {
-  const cycle = await resolveCycle(prisma, workspaceId, cycleId);
-  if (cycle.project_id !== projectId) throw AppError.notFound('Cycle not found');
+  await resolveCycle(prisma, workspaceId, projectId, cycleId);
+  const ids = [...new Set(issueIds)];
 
-  // Validate all issues belong to this project and are not deleted.
+  // Every issue must belong to this project and not be in the trash.
   const issues = await prisma.issue.findMany({
-    where: { id: { in: issueIds }, project_id: projectId, deleted_at: null },
-    select: { id: true },
+    where: { id: { in: ids }, project_id: projectId, deleted_at: null },
+    select: { id: true, cycle_id: true },
   });
-
-  if (issues.length !== issueIds.length) {
+  if (issues.length !== ids.length) {
     throw AppError.badRequest('One or more issues not found in this project');
   }
 
-  const result = await prisma.issue.updateMany({
-    where: { id: { in: issueIds }, project_id: projectId },
-    data: { cycle_id: cycleId },
-  });
+  const moving = issues.filter((i) => i.cycle_id !== cycleId);
+  if (moving.length === 0) return { added: 0 };
 
-  return { added: result.count };
+  await prisma.$transaction(async (tx) => {
+    await tx.issue.updateMany({
+      where: { id: { in: moving.map((i) => i.id) } },
+      data: { cycle_id: cycleId },
+    });
+    await recordActivities(
+      tx,
+      moving.map((i) => ({
+        workspace_id: workspaceId,
+        issue_id: i.id,
+        actor_id: actorId,
+        action: ACTIVITY_ACTIONS.ISSUE_UPDATED,
+        field: 'cycle_id',
+        old_value: i.cycle_id,
+        new_value: cycleId,
+      })),
+    );
+  });
+  return { added: moving.length };
 }
 
 export async function removeIssueFromCycle(
@@ -202,14 +233,27 @@ export async function removeIssueFromCycle(
   projectId: string,
   cycleId: string,
   issueId: string,
+  actorId: string,
 ): Promise<void> {
-  const cycle = await resolveCycle(prisma, workspaceId, cycleId);
-  if (cycle.project_id !== projectId) throw AppError.notFound('Cycle not found');
+  await resolveCycle(prisma, workspaceId, projectId, cycleId);
 
   const issue = await prisma.issue.findFirst({
     where: { id: issueId, project_id: projectId, cycle_id: cycleId, deleted_at: null },
   });
   if (!issue) throw AppError.notFound('Issue not found in this cycle');
 
-  await prisma.issue.update({ where: { id: issueId }, data: { cycle_id: null } });
+  await prisma.$transaction(async (tx) => {
+    await tx.issue.update({ where: { id: issueId }, data: { cycle_id: null } });
+    await recordActivities(tx, [
+      {
+        workspace_id: workspaceId,
+        issue_id: issueId,
+        actor_id: actorId,
+        action: ACTIVITY_ACTIONS.ISSUE_UPDATED,
+        field: 'cycle_id',
+        old_value: cycleId,
+        new_value: null,
+      },
+    ]);
+  });
 }

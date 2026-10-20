@@ -38,8 +38,13 @@ export async function getModuleHandler(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
-  const { moduleId } = request.params as { moduleId: string };
-  const mod = await moduleService.getModule(request.server.prisma, request.workspace.id, moduleId);
+  const { projectId, moduleId } = request.params as { projectId: string; moduleId: string };
+  const mod = await moduleService.getModule(
+    request.server.prisma,
+    request.workspace.id,
+    projectId,
+    moduleId,
+  );
   reply.send(mod);
 }
 
@@ -47,11 +52,12 @@ export async function updateModuleHandler(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
-  const { moduleId } = request.params as { moduleId: string };
+  const { projectId, moduleId } = request.params as { projectId: string; moduleId: string };
   const body = UpdateModuleBodySchema.parse(request.body);
   const mod = await moduleService.updateModule(
     request.server.prisma,
     request.workspace.id,
+    projectId,
     moduleId,
     body,
   );
@@ -62,8 +68,14 @@ export async function deleteModuleHandler(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
-  const { moduleId } = request.params as { moduleId: string };
-  await moduleService.deleteModule(request.server.prisma, request.workspace.id, moduleId);
+  const { projectId, moduleId } = request.params as { projectId: string; moduleId: string };
+  await moduleService.deleteModule(
+    request.server.prisma,
+    request.workspace.id,
+    projectId,
+    moduleId,
+    request.userId,
+  );
   reply.code(204).send();
 }
 
@@ -79,6 +91,7 @@ export async function addIssuesToModuleHandler(
     projectId,
     moduleId,
     body.issue_ids,
+    request.userId,
   );
   reply.send(result);
 }
@@ -98,6 +111,7 @@ export async function removeIssueFromModuleHandler(
     projectId,
     moduleId,
     issueId,
+    request.userId,
   );
   reply.code(204).send();
 }

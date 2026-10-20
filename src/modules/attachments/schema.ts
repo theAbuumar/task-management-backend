@@ -59,6 +59,9 @@ const uploadShape = {
 export const listAttachmentsSchema: FastifySchema = {
   tags: ['Attachments'],
   summary: 'List attachments on an issue (each with a presigned download URL)',
+  description:
+    'Newest first. Each `download_url` is signed for `STORAGE_DOWNLOAD_TTL` seconds (a day by default): ' +
+    'an open task keeps its files, a copied link stops working (ADR-027).',
   security,
   response: {
     200: { type: 'array', items: attachmentShape },
@@ -70,14 +73,24 @@ export const createAttachmentSchema: FastifySchema = {
   summary: 'Register an attachment and get a presigned upload URL',
   description:
     'Creates the attachment metadata row and returns a short-lived presigned URL the client ' +
-    'uploads the file bytes to (HTTP PUT). Bytes never flow through the API.',
+    'uploads the file bytes to (HTTP PUT). Bytes never flow through the API. Limits (4.B2): ' +
+    '`file_size` up to `ATTACHMENT_MAX_BYTES` (25 MiB by default, 400 otherwise); executables and ' +
+    'scripts (.exe, .bat, .js, .sh, …) are refused by extension and by content — ' +
+    '`400 FILE_TYPE_NOT_ALLOWED`; a file whose content does not match its extension — ' +
+    '`400 FILE_CONTENT_MISMATCH` (ADR-027). The upload slot lives `STORAGE_PRESIGN_TTL` seconds ' +
+    '(900 by default, `upload.expires_in`); download links in the list live `STORAGE_DOWNLOAD_TTL` ' +
+    '(a day by default).',
   security,
   body: {
     type: 'object',
     required: ['file_name', 'file_size', 'mime_type'],
     properties: {
       file_name: { type: 'string', minLength: 1, maxLength: 255 },
-      file_size: { type: 'integer', minimum: 1 },
+      file_size: {
+        type: 'integer',
+        minimum: 1,
+        description: 'Bytes; at most ATTACHMENT_MAX_BYTES',
+      },
       mime_type: { type: 'string', minLength: 1, maxLength: 255 },
     },
   },

@@ -64,7 +64,13 @@ export type ErrorCode =
   | 'PROJECT_IN_TRASH'
   | 'ACTIVITY_FORBIDDEN'
   | 'DRAFT_INCOMPLETE'
-  | 'CHECKLIST_FULL';
+  | 'CHECKLIST_FULL'
+  | 'LAST_STATE_IN_GROUP'
+  | 'DEFAULT_STATE'
+  | 'DISTRIBUTION_CHILD'
+  | 'USER_NOT_FOUND'
+  | 'IMPORT_FILE_INVALID'
+  | 'IMPORT_TOO_MANY_ROWS';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -139,6 +145,16 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
   ACTIVITY_FORBIDDEN: 'The workspace feed is for admins and department heads',
   DRAFT_INCOMPLETE: 'A draft needs a project and a title to be published',
   CHECKLIST_FULL: 'A checklist holds at most 100 items',
+  LAST_STATE_IN_GROUP:
+    'Every state group keeps at least one state — review, acceptance and analytics rely on them (details.group)',
+  DEFAULT_STATE:
+    'The default state cannot be deleted or stop being the default — make another state the default first',
+  DISTRIBUTION_CHILD:
+    'A distribution to departments has only its department parts as sub-issues: none can be added under it, and its parts cannot move',
+  USER_NOT_FOUND: 'There is no account with this email — send an invitation instead',
+  IMPORT_FILE_INVALID:
+    'The import file could not be read — use the XLSX template or a CSV with its columns (details.reason)',
+  IMPORT_TOO_MANY_ROWS: 'An import takes at most 500 rows at a time (details.limit)',
 };
 
 /**

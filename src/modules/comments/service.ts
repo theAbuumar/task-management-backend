@@ -5,13 +5,20 @@ import { notify, parseMentions } from '../../lib/notifications.js';
 import { addWatchers } from '../control/rules.js';
 import type { CreateCommentBody, UpdateCommentBody } from './schema.js';
 
-type CommentWithAuthor = Prisma.CommentGetPayload<{
-  include: { author: { select: { id: true; display_name: true; avatar_url: true } } };
-}>;
-
 const INCLUDE_AUTHOR = {
-  author: { select: { id: true, display_name: true, avatar_url: true } },
+  author: {
+    select: {
+      id: true,
+      display_name: true,
+      last_name: true,
+      first_name: true,
+      middle_name: true,
+      avatar_url: true,
+    },
+  },
 } as const;
+
+type CommentWithAuthor = Prisma.CommentGetPayload<{ include: typeof INCLUDE_AUTHOR }>;
 
 async function resolveIssue(
   prisma: PrismaClient,
@@ -32,11 +39,19 @@ export async function listComments(
   issueId: string,
 ): Promise<CommentWithAuthor[]> {
   await resolveIssue(prisma, workspaceId, projectId, issueId);
-  return prisma.comment.findMany({
+  const comments = await prisma.comment.findMany({
     where: { issue_id: issueId },
     include: INCLUDE_AUTHOR,
     orderBy: { created_at: 'asc' },
   });
+  // A deleted comment stays only as the head of a thread that has live replies,
+  // and without its text (ADR-031).
+  const repliedTo = new Set(
+    comments.filter((c) => !c.deleted_at && c.parent_comment_id).map((c) => c.parent_comment_id),
+  );
+  return comments
+    .filter((c) => !c.deleted_at || repliedTo.has(c.id))
+    .map((c) => (c.deleted_at ? { ...c, body: '' } : c));
 }
 
 export async function createComment(
@@ -49,11 +64,15 @@ export async function createComment(
 ): Promise<CommentWithAuthor> {
   await resolveIssue(prisma, workspaceId, projectId, issueId);
 
+  // Replies form a thread one level deep: a reply to a reply joins the same thread.
+  let parentId: string | null = null;
   if (body.parent_comment_id) {
     const parent = await prisma.comment.findFirst({
-      where: { id: body.parent_comment_id, issue_id: issueId },
+      where: { id: body.parent_comment_id, issue_id: issueId, deleted_at: null },
+      select: { id: true, parent_comment_id: true },
     });
     if (!parent) throw AppError.badRequest('parent_comment_id does not exist on this issue');
+    parentId = parent.parent_comment_id ?? parent.id;
   }
 
   // Recipients of a comment notification: everyone watching the issue (author,
@@ -87,7 +106,7 @@ export async function createComment(
         issue_id: issueId,
         author_id: authorId,
         body: body.body,
-        parent_comment_id: body.parent_comment_id ?? null,
+        parent_comment_id: parentId,
       },
       include: INCLUDE_AUTHOR,
     });
@@ -177,10 +196,17 @@ export async function updateComment(
   if (!isAuthor && !isAdmin)
     throw AppError.forbidden('Only the author or an admin can edit this comment');
 
+  // Only people mentioned for the first time by this edit are notified.
+  const [before, after] = await Promise.all([
+    resolveMentions(prisma, workspaceId, comment.body),
+    resolveMentions(prisma, workspaceId, body.body),
+  ]);
+  const newlyMentioned = after.filter((id) => !before.includes(id) && id !== requesterId);
+
   return prisma.$transaction(async (tx) => {
     const updated = await tx.comment.update({
       where: { id: commentId },
-      data: { body: body.body },
+      data: { body: body.body, edited_at: new Date() },
       include: INCLUDE_AUTHOR,
     });
     await recordActivity(tx, {
@@ -189,6 +215,14 @@ export async function updateComment(
       actor_id: requesterId,
       action: ACTIVITY_ACTIONS.COMMENT_UPDATED,
       new_value: commentId,
+    });
+    await notify(tx, {
+      workspace_id: workspaceId,
+      actor_id: requesterId,
+      type: 'mentioned',
+      recipient_ids: newlyMentioned,
+      issue_id: issueId,
+      entity_id: commentId,
     });
     return updated;
   });

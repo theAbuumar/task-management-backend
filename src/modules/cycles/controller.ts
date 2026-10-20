@@ -35,8 +35,13 @@ export async function createCycleHandler(
 }
 
 export async function getCycleHandler(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  const { cycleId } = request.params as { cycleId: string };
-  const cycle = await cycleService.getCycle(request.server.prisma, request.workspace.id, cycleId);
+  const { projectId, cycleId } = request.params as { projectId: string; cycleId: string };
+  const cycle = await cycleService.getCycle(
+    request.server.prisma,
+    request.workspace.id,
+    projectId,
+    cycleId,
+  );
   reply.send(cycle);
 }
 
@@ -44,11 +49,12 @@ export async function updateCycleHandler(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
-  const { cycleId } = request.params as { cycleId: string };
+  const { projectId, cycleId } = request.params as { projectId: string; cycleId: string };
   const body = UpdateCycleBodySchema.parse(request.body);
   const cycle = await cycleService.updateCycle(
     request.server.prisma,
     request.workspace.id,
+    projectId,
     cycleId,
     body,
   );
@@ -59,8 +65,14 @@ export async function deleteCycleHandler(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
-  const { cycleId } = request.params as { cycleId: string };
-  await cycleService.deleteCycle(request.server.prisma, request.workspace.id, cycleId);
+  const { projectId, cycleId } = request.params as { projectId: string; cycleId: string };
+  await cycleService.deleteCycle(
+    request.server.prisma,
+    request.workspace.id,
+    projectId,
+    cycleId,
+    request.userId,
+  );
   reply.code(204).send();
 }
 
@@ -76,6 +88,7 @@ export async function addIssuesToCycleHandler(
     projectId,
     cycleId,
     body.issue_ids,
+    request.userId,
   );
   reply.send(result);
 }
@@ -95,6 +108,7 @@ export async function removeIssueFromCycleHandler(
     projectId,
     cycleId,
     issueId,
+    request.userId,
   );
   reply.code(204).send();
 }

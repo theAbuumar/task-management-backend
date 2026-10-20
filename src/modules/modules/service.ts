@@ -1,19 +1,17 @@
 import type { PrismaClient, Module } from '@prisma/client';
 import { AppError } from '../../lib/errors.js';
+import { recordActivities, ACTIVITY_ACTIONS } from '../../lib/activity.js';
+import { moduleProgress, emptyProgress, type GroupProgress } from '../../lib/progress.js';
+import { assertAssignable } from '../issues/service.js';
 import type { CreateModuleBody, UpdateModuleBody } from './schema.js';
 
-export interface ModuleProgress {
-  total: number;
-  backlog: number;
-  unstarted: number;
-  started: number;
-  review: number;
-  completed: number;
-  cancelled: number;
-  completion_percentage: number;
-}
+// Модули (ADR-021, ADR-031): a lasting part of a project's work («Приёмная
+// кампания», «Аккредитация») with a lead and a status. An issue may be in any
+// number of modules; joining and leaving are recorded in the issue's history.
 
-export type ModuleDetail = Module & { progress: ModuleProgress };
+export type ModuleProgress = GroupProgress;
+
+export type ModuleView = Module & { progress: ModuleProgress };
 
 async function resolveProject(
   prisma: PrismaClient,
@@ -26,28 +24,47 @@ async function resolveProject(
   if (!project) throw AppError.notFound('Project not found');
 }
 
+/** The module of this project — one of another project answers 404 (it may be private). */
 async function resolveModule(
   prisma: PrismaClient,
   workspaceId: string,
+  projectId: string,
   moduleId: string,
 ): Promise<Module> {
   const mod = await prisma.module.findFirst({
-    where: { id: moduleId, workspace_id: workspaceId },
+    where: { id: moduleId, workspace_id: workspaceId, project_id: projectId },
   });
   if (!mod) throw AppError.notFound('Module not found');
   return mod;
+}
+
+function assertDates(start: Date | null, target: Date | null): void {
+  if (start && target && target < start) {
+    throw AppError.badRequest('target_date must not be before start_date');
+  }
+}
+
+const toDate = (v: string | null | undefined) => (v ? new Date(v) : null);
+
+async function views(prisma: PrismaClient, modules: Module[]): Promise<ModuleView[]> {
+  const progress = await moduleProgress(
+    prisma,
+    modules.map((m) => m.id),
+  );
+  return modules.map((m) => ({ ...m, progress: progress.get(m.id) ?? emptyProgress() }));
 }
 
 export async function listModules(
   prisma: PrismaClient,
   workspaceId: string,
   projectId: string,
-): Promise<Module[]> {
+): Promise<ModuleView[]> {
   await resolveProject(prisma, workspaceId, projectId);
-  return prisma.module.findMany({
+  const modules = await prisma.module.findMany({
     where: { project_id: projectId },
     orderBy: { created_at: 'asc' },
   });
+  return views(prisma, modules);
 }
 
 export async function createModule(
@@ -55,17 +72,15 @@ export async function createModule(
   workspaceId: string,
   projectId: string,
   body: CreateModuleBody,
-): Promise<Module> {
+): Promise<ModuleView> {
   await resolveProject(prisma, workspaceId, projectId);
+  // The lead is any member who can be assigned work (not a guest, not turned off).
+  if (body.lead_id) await assertAssignable(prisma, workspaceId, [body.lead_id], 'lead_id');
+  const start = toDate(body.start_date);
+  const target = toDate(body.target_date);
+  assertDates(start, target);
 
-  if (body.lead_id) {
-    const member = await prisma.projectMember.findUnique({
-      where: { project_id_user_id: { project_id: projectId, user_id: body.lead_id } },
-    });
-    if (!member) throw AppError.badRequest('Lead must be a member of this project');
-  }
-
-  return prisma.module.create({
+  const mod = await prisma.module.create({
     data: {
       workspace_id: workspaceId,
       project_id: projectId,
@@ -73,102 +88,77 @@ export async function createModule(
       description: body.description ?? null,
       status: body.status ?? 'backlog',
       lead_id: body.lead_id ?? null,
-      start_date: body.start_date ? new Date(body.start_date) : null,
-      target_date: body.target_date ? new Date(body.target_date) : null,
+      start_date: start,
+      target_date: target,
     },
   });
+  return (await views(prisma, [mod]))[0]!;
 }
 
 export async function getModule(
   prisma: PrismaClient,
   workspaceId: string,
+  projectId: string,
   moduleId: string,
-): Promise<ModuleDetail> {
-  const mod = await resolveModule(prisma, workspaceId, moduleId);
-
-  const groupCounts = await prisma.issue.groupBy({
-    by: ['state_id'],
-    where: {
-      modules: { some: { module_id: moduleId } },
-      deleted_at: null,
-    },
-    _count: { id: true },
-  });
-
-  const stateIds = groupCounts.map((g) => g.state_id);
-  const states = await prisma.state.findMany({
-    where: { id: { in: stateIds } },
-    select: { id: true, group: true },
-  });
-  const stateGroupMap = new Map(states.map((s) => [s.id, s.group]));
-
-  const progress: ModuleProgress = {
-    total: 0,
-    backlog: 0,
-    unstarted: 0,
-    started: 0,
-    review: 0,
-    completed: 0,
-    cancelled: 0,
-    completion_percentage: 0,
-  };
-
-  for (const gc of groupCounts) {
-    const count = gc._count.id;
-    const group = stateGroupMap.get(gc.state_id);
-    progress.total += count;
-    if (group) progress[group] += count;
-  }
-
-  if (progress.total > 0) {
-    progress.completion_percentage = Math.round(
-      ((progress.completed + progress.cancelled) / progress.total) * 100,
-    );
-  }
-
-  return { ...mod, progress };
+): Promise<ModuleView> {
+  const mod = await resolveModule(prisma, workspaceId, projectId, moduleId);
+  return (await views(prisma, [mod]))[0]!;
 }
 
 export async function updateModule(
   prisma: PrismaClient,
   workspaceId: string,
+  projectId: string,
   moduleId: string,
   body: UpdateModuleBody,
-): Promise<Module> {
-  const mod = await resolveModule(prisma, workspaceId, moduleId);
+): Promise<ModuleView> {
+  const mod = await resolveModule(prisma, workspaceId, projectId, moduleId);
+  if (body.lead_id) await assertAssignable(prisma, workspaceId, [body.lead_id], 'lead_id');
+  const start = body.start_date !== undefined ? toDate(body.start_date) : mod.start_date;
+  const target = body.target_date !== undefined ? toDate(body.target_date) : mod.target_date;
+  assertDates(start, target);
 
-  if (body.lead_id) {
-    const member = await prisma.projectMember.findUnique({
-      where: { project_id_user_id: { project_id: mod.project_id, user_id: body.lead_id } },
-    });
-    if (!member) throw AppError.badRequest('Lead must be a member of this project');
-  }
-
-  return prisma.module.update({
+  const updated = await prisma.module.update({
     where: { id: moduleId },
     data: {
       ...(body.name !== undefined && { name: body.name }),
       ...(body.description !== undefined && { description: body.description }),
       ...(body.status !== undefined && { status: body.status }),
       ...(body.lead_id !== undefined && { lead_id: body.lead_id }),
-      ...(body.start_date !== undefined && {
-        start_date: body.start_date ? new Date(body.start_date) : null,
-      }),
-      ...(body.target_date !== undefined && {
-        target_date: body.target_date ? new Date(body.target_date) : null,
-      }),
+      ...(body.start_date !== undefined && { start_date: start }),
+      ...(body.target_date !== undefined && { target_date: target }),
     },
   });
+  return (await views(prisma, [updated]))[0]!;
 }
 
+/** Delete a module (admin+, by route); its issues stay where they are. */
 export async function deleteModule(
   prisma: PrismaClient,
   workspaceId: string,
+  projectId: string,
   moduleId: string,
+  actorId: string,
 ): Promise<void> {
-  await resolveModule(prisma, workspaceId, moduleId);
-  // ModuleIssue rows cascade-delete via onDelete: Cascade on the FK.
-  await prisma.module.delete({ where: { id: moduleId } });
+  await resolveModule(prisma, workspaceId, projectId, moduleId);
+  const links = await prisma.moduleIssue.findMany({
+    where: { module_id: moduleId, issue: { deleted_at: null } },
+    select: { issue_id: true },
+  });
+  await prisma.$transaction(async (tx) => {
+    // ModuleIssue rows cascade-delete via onDelete: Cascade on the FK.
+    await tx.module.delete({ where: { id: moduleId } });
+    await recordActivities(
+      tx,
+      links.map((l) => ({
+        workspace_id: workspaceId,
+        issue_id: l.issue_id,
+        actor_id: actorId,
+        action: ACTIVITY_ACTIONS.MODULE_REMOVED,
+        old_value: moduleId,
+      })),
+    );
+  });
 }
 
 export async function addIssuesToModule(
@@ -177,26 +167,40 @@ export async function addIssuesToModule(
   projectId: string,
   moduleId: string,
   issueIds: string[],
+  actorId: string,
 ): Promise<{ added: number }> {
-  const mod = await resolveModule(prisma, workspaceId, moduleId);
-  if (mod.project_id !== projectId) throw AppError.notFound('Module not found');
+  await resolveModule(prisma, workspaceId, projectId, moduleId);
+  const ids = [...new Set(issueIds)];
 
   const issues = await prisma.issue.findMany({
-    where: { id: { in: issueIds }, project_id: projectId, deleted_at: null },
-    select: { id: true },
+    where: { id: { in: ids }, project_id: projectId, deleted_at: null },
+    select: { id: true, modules: { where: { module_id: moduleId }, select: { module_id: true } } },
   });
-
-  if (issues.length !== issueIds.length) {
+  if (issues.length !== ids.length) {
     throw AppError.badRequest('One or more issues not found in this project');
   }
 
-  // createMany with skipDuplicates is idempotent — re-adding an existing issue is a no-op.
-  const result = await prisma.moduleIssue.createMany({
-    data: issueIds.map((issue_id) => ({ module_id: moduleId, issue_id })),
-    skipDuplicates: true,
-  });
+  // Re-adding an issue that is already in the module is a no-op.
+  const joining = issues.filter((i) => i.modules.length === 0).map((i) => i.id);
+  if (joining.length === 0) return { added: 0 };
 
-  return { added: result.count };
+  await prisma.$transaction(async (tx) => {
+    await tx.moduleIssue.createMany({
+      data: joining.map((issue_id) => ({ module_id: moduleId, issue_id })),
+      skipDuplicates: true,
+    });
+    await recordActivities(
+      tx,
+      joining.map((issueId) => ({
+        workspace_id: workspaceId,
+        issue_id: issueId,
+        actor_id: actorId,
+        action: ACTIVITY_ACTIONS.MODULE_ADDED,
+        new_value: moduleId,
+      })),
+    );
+  });
+  return { added: joining.length };
 }
 
 export async function removeIssueFromModule(
@@ -205,16 +209,27 @@ export async function removeIssueFromModule(
   projectId: string,
   moduleId: string,
   issueId: string,
+  actorId: string,
 ): Promise<void> {
-  const mod = await resolveModule(prisma, workspaceId, moduleId);
-  if (mod.project_id !== projectId) throw AppError.notFound('Module not found');
+  await resolveModule(prisma, workspaceId, projectId, moduleId);
 
   const moduleIssue = await prisma.moduleIssue.findUnique({
     where: { module_id_issue_id: { module_id: moduleId, issue_id: issueId } },
   });
   if (!moduleIssue) throw AppError.notFound('Issue not found in this module');
 
-  await prisma.moduleIssue.delete({
-    where: { module_id_issue_id: { module_id: moduleId, issue_id: issueId } },
+  await prisma.$transaction(async (tx) => {
+    await tx.moduleIssue.delete({
+      where: { module_id_issue_id: { module_id: moduleId, issue_id: issueId } },
+    });
+    await recordActivities(tx, [
+      {
+        workspace_id: workspaceId,
+        issue_id: issueId,
+        actor_id: actorId,
+        action: ACTIVITY_ACTIONS.MODULE_REMOVED,
+        old_value: moduleId,
+      },
+    ]);
   });
 }

@@ -23,12 +23,18 @@ const commentShape = {
     parent_comment_id: { type: 'string', nullable: true },
     created_at: { type: 'string', format: 'date-time' },
     updated_at: { type: 'string', format: 'date-time' },
+    // Set when the text was edited («изменено», 4.F8).
+    edited_at: { type: 'string', format: 'date-time', nullable: true },
+    // A deleted comment comes back only as the head of a thread with replies, with an empty body.
     deleted_at: { type: 'string', nullable: true },
     author: {
       type: 'object',
       properties: {
         id: { type: 'string' },
         display_name: { type: 'string' },
+        last_name: { type: 'string', nullable: true },
+        first_name: { type: 'string', nullable: true },
+        middle_name: { type: 'string', nullable: true },
         avatar_url: { type: 'string', nullable: true },
       },
     },
@@ -40,6 +46,9 @@ const security = [{ bearerAuth: [] }];
 export const listCommentsSchema: FastifySchema = {
   tags: ['Comments'],
   summary: 'List comments on an issue',
+  description:
+    'Oldest first. Replies carry `parent_comment_id` of their thread head (one level). A deleted ' +
+    'comment is listed only when it heads a thread with live replies, and its body is empty (ADR-031).',
   security,
   response: { 200: { type: 'array', items: commentShape } },
 };
@@ -47,6 +56,9 @@ export const listCommentsSchema: FastifySchema = {
 export const createCommentSchema: FastifySchema = {
   tags: ['Comments'],
   summary: 'Add a comment to an issue',
+  description:
+    '`@handle` (the part of a member’s email before «@») notifies that member. A reply to a reply ' +
+    'joins the same thread: `parent_comment_id` of the response is the thread head.',
   security,
   body: {
     type: 'object',
@@ -62,6 +74,7 @@ export const createCommentSchema: FastifySchema = {
 export const updateCommentSchema: FastifySchema = {
   tags: ['Comments'],
   summary: 'Edit a comment (author or admin)',
+  description: 'Sets `edited_at`. Members mentioned for the first time by the edit are notified.',
   security,
   body: {
     type: 'object',

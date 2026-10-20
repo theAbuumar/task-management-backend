@@ -27,6 +27,24 @@ const relatedIssueShape = {
     priority: { type: 'string' },
     state_id: { type: 'string' },
     project_id: { type: 'string' },
+    // For the key «ABC-12» of an issue of another project.
+    project: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        identifier: { type: 'string' },
+        name: { type: 'string' },
+      },
+    },
+    state: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        group: { type: 'string' },
+        color: { type: 'string' },
+      },
+    },
   },
 } as const;
 
@@ -45,6 +63,9 @@ const linkShape = {
 export const listRelationsSchema: FastifySchema = {
   tags: ['Issue Relations'],
   summary: 'List all relations for an issue',
+  description:
+    'Grouped by type as seen from this issue. Links to issues in the trash or in a private project ' +
+    'the viewer does not belong to are left out (ADR-031).',
   security,
   response: {
     200: {
@@ -62,6 +83,10 @@ export const listRelationsSchema: FastifySchema = {
 export const createRelationSchema: FastifySchema = {
   tags: ['Issue Relations'],
   summary: 'Create a relation between two issues',
+  description:
+    'The related issue may be in another project of the workspace, but must be visible to the viewer ' +
+    '(otherwise 404, as if it did not exist). The mirror link is created too, and both issues get a ' +
+    'history entry (`issue.relation_added`, field = relation type from that issue).',
   security,
   body: {
     type: 'object',
@@ -77,6 +102,7 @@ export const createRelationSchema: FastifySchema = {
 export const deleteRelationSchema: FastifySchema = {
   tags: ['Issue Relations'],
   summary: 'Delete a relation (removes mirror relation too)',
+  description: 'Both issues get a history entry (`issue.relation_removed`).',
   security,
   response: { 204: { type: 'null' } },
 };

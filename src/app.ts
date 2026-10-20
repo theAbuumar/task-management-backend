@@ -32,6 +32,7 @@ import { providerRoutes } from './modules/auth/providers.js';
 import { workspaceRoutes } from './modules/workspaces/routes.js';
 import { projectRoutes } from './modules/projects/routes.js';
 import { stateRoutes } from './modules/states/routes.js';
+import { memberImportRoutes } from './modules/member-import/routes.js';
 import { labelRoutes } from './modules/labels/routes.js';
 import { issueRoutes } from './modules/issues/routes.js';
 import { commentRoutes } from './modules/comments/routes.js';
@@ -195,6 +196,10 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(demoRoutes, { prefix: '/api/v1/auth' });
   await app.register(providerRoutes, { prefix: '/api/v1/auth' });
   await app.register(workspaceRoutes, { prefix: '/api/v1/workspaces' });
+  // Staff import (4.B1): the template and the import.
+  await app.register(memberImportRoutes, {
+    prefix: '/api/v1/workspaces/:workspaceSlug/members/import',
+  });
   await app.register(projectRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/projects' });
   await app.register(workspaceIssueRoutes, {
     prefix: '/api/v1/workspaces/:workspaceSlug/issues',

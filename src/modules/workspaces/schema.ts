@@ -46,10 +46,20 @@ export const UpdateWorkspaceBodySchema = z.object({
   locale: z.enum(LOCALES).optional(),
 });
 
-export const AddMemberBodySchema = z.object({
-  user_id: z.string().uuid(),
-  role: z.enum(['admin', 'member', 'guest']).default('member'),
-});
+// Add a registered person right away, no invitation (4.F10): by id or by email,
+// optionally with their place in the org structure.
+export const AddMemberBodySchema = z
+  .object({
+    user_id: z.string().uuid().optional(),
+    email: z.string().trim().toLowerCase().email().optional(),
+    role: z.enum(['admin', 'member', 'guest']).default('member'),
+    department_id: z.string().uuid().optional().nullable(),
+    position: z.string().trim().max(150).optional().nullable(),
+  })
+  .refine((v) => Boolean(v.user_id) !== Boolean(v.email), {
+    message: 'Provide exactly one of user_id or email',
+    path: ['user_id'],
+  });
 
 // Update a member: access role and/or place in the org structure (ADR-007).
 export const ChangeMemberRoleBodySchema = z
@@ -70,9 +80,18 @@ export const ListMembersQuerySchema = z.object({
   search: z.string().max(100).optional(),
 });
 
+const nameField = z.string().trim().max(60).optional().nullable();
+
 export const InviteMemberBodySchema = z.object({
   email: z.string().email(),
   role: z.enum(['admin', 'member', 'guest']).default('member'),
+  // Given on accepting (staff import 4.B1): the place in the org structure, and the
+  // full name for an account that has none yet.
+  department_id: z.string().uuid().optional().nullable(),
+  position: z.string().trim().max(150).optional().nullable(),
+  last_name: nameField,
+  first_name: nameField,
+  middle_name: nameField,
 });
 
 export type ListMembersQuery = z.infer<typeof ListMembersQuerySchema>;
@@ -225,15 +244,21 @@ export const listMembersSchema: FastifySchema = {
 
 export const addMemberSchema: FastifySchema = {
   tags: ['Workspaces'],
-  summary: 'Add an existing user to the workspace (admin+)',
+  summary: 'Add an existing user to the workspace right away, without an invitation (admin+)',
+  description:
+    'Identify the person by exactly one of `user_id` or `email` (4.F10). `department_id` and ' +
+    '`position` place them in the org structure at once. No account with this email → ' +
+    '`404 USER_NOT_FOUND` (send an invitation instead); already a member → `409 ALREADY_MEMBER`.',
   security,
   params: { type: 'object', properties: { workspaceSlug: { type: 'string' } } },
   body: {
     type: 'object',
-    required: ['user_id'],
     properties: {
       user_id: { type: 'string', format: 'uuid' },
+      email: { type: 'string', format: 'email' },
       role: { type: 'string', enum: ['admin', 'member', 'guest'] },
+      department_id: { type: 'string', format: 'uuid', nullable: true },
+      position: { type: 'string', maxLength: 150, nullable: true },
     },
   },
   response: { 201: memberShape },
@@ -302,6 +327,9 @@ const inviteShape = {
 export const inviteMemberSchema: FastifySchema = {
   tags: ['Workspaces'],
   summary: 'Invite a user to the workspace by email (admin+)',
+  description:
+    'An email with a link to sign up and join. `department_id` and `position` are applied on ' +
+    'accepting; the name parts fill an account that has no full name yet (staff import, 4.B1).',
   security,
   params: { type: 'object', properties: { workspaceSlug: { type: 'string' } } },
   body: {
@@ -310,6 +338,11 @@ export const inviteMemberSchema: FastifySchema = {
     properties: {
       email: { type: 'string', format: 'email' },
       role: { type: 'string', enum: ['admin', 'member', 'guest'] },
+      department_id: { type: 'string', format: 'uuid', nullable: true },
+      position: { type: 'string', maxLength: 150, nullable: true },
+      last_name: { type: 'string', maxLength: 60, nullable: true },
+      first_name: { type: 'string', maxLength: 60, nullable: true },
+      middle_name: { type: 'string', maxLength: 60, nullable: true },
     },
   },
   response: { 201: inviteShape },

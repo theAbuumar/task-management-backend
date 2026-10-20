@@ -12,6 +12,7 @@ export async function listRelationsHandler(
     request.workspace.id,
     projectId,
     issueId,
+    request.workspaceMember,
   );
   reply.send(result);
 }
@@ -28,6 +29,7 @@ export async function createRelationHandler(
     projectId,
     issueId,
     body,
+    request.workspaceMember,
   );
   reply.code(201).send(link);
 }
@@ -47,6 +49,7 @@ export async function deleteRelationHandler(
     projectId,
     issueId,
     linkId,
+    request.workspaceMember,
   );
   reply.code(204).send();
 }

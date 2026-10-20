@@ -16,7 +16,7 @@ export const UpdateCycleBodySchema = z.object({
 });
 
 export const AddIssuesToCycleBodySchema = z.object({
-  issue_ids: z.array(z.string().uuid()).min(1),
+  issue_ids: z.array(z.string().uuid()).min(1).max(100),
 });
 
 export type CreateCycleBody = z.infer<typeof CreateCycleBodySchema>;
@@ -33,8 +33,8 @@ const cycleShape = {
     project_id: { type: 'string' },
     name: { type: 'string' },
     description: { type: 'string', nullable: true },
-    start_date: { type: 'string', nullable: true },
-    end_date: { type: 'string', nullable: true },
+    start_date: { type: 'string', format: 'date-time', nullable: true },
+    end_date: { type: 'string', format: 'date-time', nullable: true },
     status: { type: 'string', enum: ['upcoming', 'active', 'completed'] },
     created_at: { type: 'string', format: 'date-time' },
     updated_at: { type: 'string', format: 'date-time' },
@@ -55,7 +55,21 @@ const progressShape = {
   },
 } as const;
 
+const cycleViewShape = {
+  type: 'object',
+  properties: { ...cycleShape.properties, progress: progressShape },
+} as const;
+
+const tags = ['Cycles'];
+const security = [{ bearerAuth: [] }];
+
 export const listCyclesSchema: FastifySchema = {
+  tags,
+  summary: 'List the cycles (этапы) of a project with their progress',
+  description:
+    'Ordered by start date (no date last). `status` follows the dates as days of the workspace time ' +
+    'zone; `progress` counts issues by state group (trash left out), done = completed + cancelled.',
+  security,
   params: {
     type: 'object',
     required: ['workspaceSlug', 'projectId'],
@@ -64,10 +78,13 @@ export const listCyclesSchema: FastifySchema = {
       projectId: { type: 'string' },
     },
   },
-  response: { 200: { type: 'array', items: cycleShape } },
+  response: { 200: { type: 'array', items: cycleViewShape } },
 };
 
 export const createCycleSchema: FastifySchema = {
+  tags,
+  summary: 'Create a cycle (member+); end_date must not be before start_date',
+  security,
   params: {
     type: 'object',
     required: ['workspaceSlug', 'projectId'],
@@ -86,10 +103,13 @@ export const createCycleSchema: FastifySchema = {
       end_date: { type: 'string', nullable: true },
     },
   },
-  response: { 201: cycleShape },
+  response: { 201: cycleViewShape },
 };
 
 export const getCycleSchema: FastifySchema = {
+  tags,
+  summary: 'A cycle with its progress',
+  security,
   params: {
     type: 'object',
     required: ['workspaceSlug', 'projectId', 'cycleId'],
@@ -99,18 +119,13 @@ export const getCycleSchema: FastifySchema = {
       cycleId: { type: 'string' },
     },
   },
-  response: {
-    200: {
-      type: 'object',
-      properties: {
-        ...cycleShape.properties,
-        progress: progressShape,
-      },
-    },
-  },
+  response: { 200: cycleViewShape },
 };
 
 export const updateCycleSchema: FastifySchema = {
+  tags,
+  summary: 'Update a cycle (member+)',
+  security,
   params: {
     type: 'object',
     required: ['workspaceSlug', 'projectId', 'cycleId'],
@@ -129,10 +144,13 @@ export const updateCycleSchema: FastifySchema = {
       end_date: { type: 'string', nullable: true },
     },
   },
-  response: { 200: cycleShape },
+  response: { 200: cycleViewShape },
 };
 
 export const deleteCycleSchema: FastifySchema = {
+  tags,
+  summary: 'Delete a cycle (admin+); its issues stay, out of any cycle',
+  security,
   params: {
     type: 'object',
     required: ['workspaceSlug', 'projectId', 'cycleId'],
@@ -146,6 +164,12 @@ export const deleteCycleSchema: FastifySchema = {
 };
 
 export const addIssuesToCycleSchema: FastifySchema = {
+  tags,
+  summary: 'Add issues to a cycle (member+); an issue in another cycle moves here',
+  description:
+    'Each issue that changes cycle gets a history entry (`issue.updated`, field `cycle_id`). ' +
+    '`added` counts the issues that moved; ones already in the cycle are left as they are.',
+  security,
   params: {
     type: 'object',
     required: ['workspaceSlug', 'projectId', 'cycleId'],
@@ -159,13 +183,21 @@ export const addIssuesToCycleSchema: FastifySchema = {
     type: 'object',
     required: ['issue_ids'],
     properties: {
-      issue_ids: { type: 'array', items: { type: 'string' }, minItems: 1 },
+      issue_ids: {
+        type: 'array',
+        items: { type: 'string', format: 'uuid' },
+        minItems: 1,
+        maxItems: 100,
+      },
     },
   },
   response: { 200: { type: 'object', properties: { added: { type: 'integer' } } } },
 };
 
 export const removeIssueFromCycleSchema: FastifySchema = {
+  tags,
+  summary: 'Take an issue out of a cycle (member+)',
+  security,
   params: {
     type: 'object',
     required: ['workspaceSlug', 'projectId', 'cycleId', 'issueId'],

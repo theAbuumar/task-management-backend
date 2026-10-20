@@ -75,7 +75,9 @@ export function parseMentions(body: string): string[] {
   const matches = body.matchAll(/(?:^|[\s([{<])@([a-zA-Z0-9._-]+)/g);
   const handles = new Set<string>();
   for (const m of matches) {
-    if (m[1]) handles.add(m[1].toLowerCase());
+    // «@ivanov.» at the end of a sentence: the dot is punctuation, not the handle.
+    const handle = m[1]?.replace(/[._-]+$/, '').toLowerCase();
+    if (handle) handles.add(handle);
   }
   return [...handles];
 }
