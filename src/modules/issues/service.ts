@@ -17,6 +17,7 @@ import { issueUrl } from '../../lib/urls.js';
 import { publish } from '../../lib/realtime.js';
 import { notificationButtons } from '../telegram/views.js';
 import { addDays, localDate, startOfLocalDay } from '../../lib/tz.js';
+import { createChecklistItems } from '../checklist/service.js';
 import {
   OPEN_GROUPS,
   addWatchers,
@@ -102,7 +103,7 @@ export const INCLUDE_RELATIONS = {
  * on the task — a guest is read-only (12.B4) and a deactivated member has no
  * access (12.B7), so neither can be assigned.
  */
-async function assertAssignable(
+export async function assertAssignable(
   prisma: PrismaClient,
   workspaceId: string,
   userIds: string[],
@@ -405,6 +406,8 @@ export async function createIssue(
   projectId: string,
   creatorId: string,
   body: CreateIssueBody,
+  /** Set by the scheduler for an issue a recurring rule creates (6.B4). */
+  options: { recurringRuleId?: string } = {},
 ): Promise<IssueWithRelations> {
   await resolveProject(prisma, workspaceId, projectId);
 
@@ -459,6 +462,8 @@ export async function createIssue(
         requires_review: requiresReview,
         basis: body.basis ?? null,
         ai_assisted: body.ai_assisted ?? false,
+        checklist_total: body.checklist?.length ?? 0,
+        recurring_rule_id: options.recurringRuleId ?? null,
         assignees: assigneeIds.length
           ? {
               createMany: {
@@ -472,6 +477,7 @@ export async function createIssue(
       },
       include: INCLUDE_RELATIONS,
     });
+    await createChecklistItems(tx, issue.id, body.checklist ?? []);
 
     await recordActivity(tx, {
       workspace_id: workspaceId,

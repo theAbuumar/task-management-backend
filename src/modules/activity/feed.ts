@@ -26,6 +26,7 @@ export const FEED_TYPES = [
   'people',
   'comments',
   'files',
+  'checklist',
   'trash',
 ] as const;
 export type FeedType = (typeof FEED_TYPES)[number];
@@ -61,6 +62,7 @@ const TYPE_WHERE: Record<FeedType, Prisma.ActivityLogWhereInput> = {
   },
   comments: { action: { startsWith: 'comment.' } },
   files: { action: { in: ['issue.attachment_added', 'issue.attachment_removed'] } },
+  checklist: { action: { startsWith: 'issue.checklist_' } },
   trash: { action: { in: ['issue.deleted', 'issue.restored'] } },
 };
 

@@ -39,6 +39,8 @@ export const CreateIssueBodySchema = z.object({
   primary_assignee_id: z.string().uuid().optional(),
   // Created from an AI draft that a person checked (Ф11 11.F5).
   ai_assisted: z.boolean().optional(),
+  // Checklist items in order (6.B5) — from a template or typed in the form.
+  checklist: z.array(z.string().trim().min(1).max(500)).max(100).optional(),
 });
 
 // Рассылка подразделениям (6.B1): one assignment, a child per department.
@@ -164,6 +166,11 @@ const issueShape = {
     department_id: { type: 'string', nullable: true },
     // Created from an AI draft (Ф11): the card says «Подготовлено с помощью AI».
     ai_assisted: { type: 'boolean' },
+    // Checklist progress «3/7» (6.B5).
+    checklist_total: { type: 'integer' },
+    checklist_done: { type: 'integer' },
+    // The recurring rule that created this issue (6.B4).
+    recurring_rule_id: { type: 'string', nullable: true },
     // { id, name, short_name } of the department a distribution child is addressed to.
     department: { type: 'object', nullable: true, additionalProperties: true },
     // { id, name, identifier, icon, color } — present in the workspace-wide list.
@@ -317,6 +324,12 @@ export const createIssueSchema: FastifySchema = {
       ai_assisted: {
         type: 'boolean',
         description: 'Made from an AI draft (POST WS/ai/draft-issues) that a person checked',
+      },
+      checklist: {
+        type: 'array',
+        maxItems: 100,
+        items: { type: 'string', minLength: 1, maxLength: 500 },
+        description: 'Checklist items in order (6.B5)',
       },
     },
   },

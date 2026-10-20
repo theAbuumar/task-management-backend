@@ -72,6 +72,15 @@ enum ProjectStatus {
 
 // A plain task vs. an "поручение" — an assignment with a controller who accepts
 // the result (ADR-008).
+// How often a recurring rule creates an issue (6.B4, ADR-030).
+enum RecurrenceFrequency {
+  daily
+  weekly
+  monthly
+  quarterly
+  yearly
+}
+
 enum IssueKind {
   task
   assignment
@@ -199,6 +208,9 @@ model User {
   ai_conversations          AiConversation[]
   saved_views               SavedView[]
   issue_drafts              IssueDraft[]
+  checked_items             IssueChecklistItem[]    @relation("ChecklistDoneBy")
+  recurring_rules           RecurringRule[]
+  issue_templates           IssueTemplate[]
 }
 
 // Rotating refresh tokens. One row per live token; revoked_at set on logout/rotation.
@@ -387,6 +399,8 @@ model Workspace {
   ai_conversations AiConversation[]
   saved_views      SavedView[]
   issue_drafts     IssueDraft[]
+  recurring_rules  RecurringRule[]
+  issue_templates  IssueTemplate[]
 }
 
 model WorkspaceMember {
@@ -470,6 +484,8 @@ model Project {
   modules    Module[]
   views      SavedView[]
   drafts     IssueDraft[]
+  recurring  RecurringRule[]
+  templates  IssueTemplate[]
 
   @@unique([workspace_id, identifier])
   @@index([workspace_id])
@@ -509,39 +525,45 @@ model State {
 }
 
 model Issue {
-  id              String        @id @default(uuid())
-  workspace_id    String
-  project_id      String
-  sequence_id     Int
-  title           String
-  description     String?
-  state_id        String
-  priority        IssuePriority @default(none)
-  parent_id       String?
-  cycle_id        String?
-  estimate_points Float?
-  start_date      DateTime?
-  due_date        DateTime?
-  completed_at    DateTime?
-  created_by_id   String
+  id                String        @id @default(uuid())
+  workspace_id      String
+  project_id        String
+  sequence_id       Int
+  title             String
+  description       String?
+  state_id          String
+  priority          IssuePriority @default(none)
+  parent_id         String?
+  cycle_id          String?
+  estimate_points   Float?
+  start_date        DateTime?
+  due_date          DateTime?
+  completed_at      DateTime?
+  created_by_id     String
   // Поручение fields (ADR-008).
-  kind            IssueKind     @default(task)
-  controller_id   String?
-  requires_review Boolean       @default(false)
+  kind              IssueKind     @default(task)
+  controller_id     String?
+  requires_review   Boolean       @default(false)
   // What the assignment is based on: "Протокол ректората №5 от 12.10.2026".
-  basis           String?
+  basis             String?
   // Рассылка подразделениям (6.B1): the parent is marked `is_distribution`, each
   // child carries the department it is addressed to (its head is the primary assignee).
-  is_distribution Boolean       @default(false)
-  department_id   String?
+  is_distribution   Boolean       @default(false)
+  department_id     String?
   // Created from an AI draft (Ф11 11.F5, ADR-028): a person reviewed and created it.
-  ai_assisted     Boolean       @default(false)
-  sort_order      Float         @default(0)
-  created_at      DateTime      @default(now())
-  updated_at      DateTime      @updatedAt
+  ai_assisted       Boolean       @default(false)
+  // Checklist progress «3/7» (6.B5, ADR-030): recounted with every item change,
+  // so lists and boards show it without loading the items.
+  checklist_total   Int           @default(0)
+  checklist_done    Int           @default(0)
+  // The recurring rule that created this issue (6.B4); null for anything else.
+  recurring_rule_id String?
+  sort_order        Float         @default(0)
+  created_at        DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
   // Soft delete: the issue sits in the trash for 30 days (ADR-017, 7.B6).
-  deleted_at      DateTime?
-  deleted_by_id   String?
+  deleted_at        DateTime?
+  deleted_by_id     String?
 
   workspace         Workspace               @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
   project           Project                 @relation(fields: [project_id], references: [id], onDelete: Cascade)
@@ -565,6 +587,13 @@ model Issue {
   deadline_requests DeadlineChangeRequest[]
   watchers          IssueWatcher[]
   reminders         ReminderLog[]
+  checklist         IssueChecklistItem[]
+  recurring_rule    RecurringRule?          @relation(fields: [recurring_rule_id], references: [id], onDelete: SetNull)
+  // Full-text search (7.B2) uses the expression GIN index "Issue_search_idx" on
+  // to_tsvector('russian', title || ' ' || coalesce(description, '')), created by
+  // migration `search` — Prisma cannot describe it; keep it out of DROP INDEX diffs.
+  // The title substring match has the trigram index "Issue_title_trgm_idx" on
+  // translate(title, 'Ёё', 'Ее') (pg_trgm, migration `search_trgm`, 7.B7), same rule.
 
   @@unique([project_id, sequence_id])
   @@index([workspace_id])
@@ -579,12 +608,8 @@ model Issue {
   @@index([controller_id])
   @@index([kind])
   @@index([department_id])
+  @@index([recurring_rule_id])
   @@index([workspace_id, completed_at])
-  // Full-text search (7.B2) uses the expression GIN index "Issue_search_idx" on
-  // to_tsvector('russian', title || ' ' || coalesce(description, '')), created by
-  // migration `search` — Prisma cannot describe it; keep it out of DROP INDEX diffs.
-  // The title substring match has the trigram index "Issue_title_trgm_idx" on
-  // translate(title, 'Ёё', 'Ее') (pg_trgm, migration `search_trgm`, 7.B7), same rule.
 }
 
 model IssueAssignee {
@@ -1043,5 +1068,88 @@ model IssueDraft {
   project   Project?  @relation(fields: [project_id], references: [id], onDelete: Cascade)
 
   @@index([workspace_id, user_id, updated_at])
+  @@index([project_id])
+}
+
+// A step of an issue's checklist (6.B5, ADR-030) — «подготовка к аккредитации»
+// in seven ticks. At most 100 per issue; the issue keeps the «3/7» counters.
+model IssueChecklistItem {
+  id         String    @id @default(uuid())
+  issue_id   String
+  text       String
+  is_done    Boolean   @default(false)
+  done_by_id String?
+  done_at    DateTime?
+  order      Int       @default(0)
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+
+  issue   Issue @relation(fields: [issue_id], references: [id], onDelete: Cascade)
+  done_by User? @relation("ChecklistDoneBy", fields: [done_by_id], references: [id], onDelete: SetNull)
+
+  @@index([issue_id, order])
+}
+
+// A recurring issue (6.B4, ADR-030): a copy of the create form's fields plus a
+// schedule in the workspace zone. The scheduler creates one issue per due run,
+// through createIssue, on behalf of the author.
+model RecurringRule {
+  id            String              @id @default(uuid())
+  workspace_id  String
+  project_id    String
+  created_by_id String
+  // title, description, kind, priority, assignee_ids, primary_assignee_id,
+  // controller_id, requires_review, basis, label_ids, checklist.
+  data          Json                @default("{}")
+  // The instance is due this many days after it is created; null — no deadline.
+  due_in_days   Int?
+  frequency     RecurrenceFrequency
+  interval      Int                 @default(1)
+  // weekly: ISO weekdays, 1 = Monday … 7 = Sunday.
+  by_weekday    Int[]               @default([])
+  // monthly / quarterly / yearly: 1–31; past the month's end means its last day.
+  by_monthday   Int?
+  // yearly: 1–12.
+  by_month      Int?
+  // Local wall-clock time of the run, "HH:MM".
+  time          String              @default("09:00")
+  // Local calendar dates "YYYY-MM-DD" (ADR-012): first possible run, last one (inclusive).
+  start_date    String
+  until         String?
+  next_run_at   DateTime?
+  last_run_at   DateTime?
+  // Why the latest run created nothing (an assignee was turned off…); null when it worked.
+  last_error    String?
+  is_active     Boolean             @default(true)
+  created_at    DateTime            @default(now())
+  updated_at    DateTime            @updatedAt
+
+  workspace  Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  project    Project   @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  created_by User      @relation(fields: [created_by_id], references: [id], onDelete: Cascade)
+  issues     Issue[]
+
+  @@index([is_active, next_run_at])
+  @@index([project_id])
+}
+
+// A template of a typical issue (6.B3, ADR-030): workspace-wide (project_id null)
+// or of one project. The same fields as a recurring rule.
+model IssueTemplate {
+  id            String   @id @default(uuid())
+  workspace_id  String
+  project_id    String?
+  created_by_id String?
+  name          String
+  data          Json     @default("{}")
+  due_in_days   Int?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  workspace  Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  project    Project?  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  created_by User?     @relation(fields: [created_by_id], references: [id], onDelete: SetNull)
+
+  @@index([workspace_id, project_id])
   @@index([project_id])
 }

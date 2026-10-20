@@ -63,7 +63,8 @@ export type ErrorCode =
   | 'AI_FILE_UNSUPPORTED'
   | 'PROJECT_IN_TRASH'
   | 'ACTIVITY_FORBIDDEN'
-  | 'DRAFT_INCOMPLETE';
+  | 'DRAFT_INCOMPLETE'
+  | 'CHECKLIST_FULL';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -137,6 +138,7 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
     'The issue is in a project that is itself in the trash — restore the project first',
   ACTIVITY_FORBIDDEN: 'The workspace feed is for admins and department heads',
   DRAFT_INCOMPLETE: 'A draft needs a project and a title to be published',
+  CHECKLIST_FULL: 'A checklist holds at most 100 items',
 };
 
 /**

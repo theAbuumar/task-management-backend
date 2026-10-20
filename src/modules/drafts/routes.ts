@@ -22,7 +22,7 @@ const data = {
   type: 'object',
   description:
     'The create form as typed: title, description, kind, state_id, priority, assignee_ids, ' +
-    'primary_assignee_id, controller_id, requires_review, basis, label_ids, start_date, due_date — all optional',
+    'primary_assignee_id, controller_id, requires_review, basis, label_ids, start_date, due_date, checklist — all optional',
   additionalProperties: true,
 } as const;
 

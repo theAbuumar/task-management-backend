@@ -41,6 +41,12 @@ export const ACTIVITY_ACTIONS = {
   DEADLINE_REQUESTED: 'issue.deadline_requested',
   DEADLINE_APPROVED: 'issue.deadline_approved',
   DEADLINE_REJECTED: 'issue.deadline_rejected',
+  // Checklist (6.B5): the item's text is in new_value (old_value when removed or renamed).
+  CHECKLIST_ADDED: 'issue.checklist_added',
+  CHECKLIST_CHECKED: 'issue.checklist_checked',
+  CHECKLIST_UNCHECKED: 'issue.checklist_unchecked',
+  CHECKLIST_UPDATED: 'issue.checklist_updated',
+  CHECKLIST_REMOVED: 'issue.checklist_removed',
 } as const;
 
 export interface ActivityEntry {

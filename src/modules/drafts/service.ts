@@ -30,6 +30,7 @@ export const DraftDataSchema = CreateIssueBodySchema.pick({
   requires_review: true,
   basis: true,
   primary_assignee_id: true,
+  checklist: true,
 })
   .extend({
     // A draft may be saved before the title is typed.

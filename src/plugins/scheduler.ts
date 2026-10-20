@@ -1,6 +1,7 @@
 // Background scheduler (Ф5 5.B1). Runs the deadline-reminder pass every few
-// minutes inside the API process, and empties the trash of what was deleted
-// more than 30 days ago (Ф7 7.B6, ADR-017).
+// minutes inside the API process, creates the issues of recurring rules whose run
+// is due (Ф6 6.B4, ADR-030), and empties the trash of what was deleted more than
+// 30 days ago (Ф7 7.B6, ADR-017).
 //
 // "Режим 6 дней" simplification of ADR-009 (pg-boss): a timer + a PostgreSQL
 // advisory lock, so with several instances only one runs a pass at a time, and
@@ -11,6 +12,7 @@ import fp from 'fastify-plugin';
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config/index.js';
 import { runReminders } from '../modules/control/reminders.js';
+import { runRecurring } from '../modules/recurring/service.js';
 import { purgeExpiredTrash } from '../modules/trash/service.js';
 import { writeAudit } from '../lib/audit.js';
 
@@ -73,6 +75,12 @@ async function schedulerPlugin(app: FastifyInstance): Promise<void> {
           const rows = await tx.$queryRaw<{ locked: boolean }[]>`
             SELECT pg_try_advisory_xact_lock(${LOCK_KEY}) AS locked`;
           if (!rows[0]?.locked) return;
+          // Recurring issues first (6.B4): a report created at 09:00 gets its own
+          // reminders in the same pass.
+          const recurring = await runRecurring(app.prisma);
+          if (recurring.created + recurring.failed + recurring.paused > 0) {
+            app.log.info({ recurring }, 'recurring issues created');
+          }
           const result = await runReminders(app.prisma);
           const sent = result.sent.due_soon + result.sent.overdue + result.sent.escalated;
           if (sent > 0) app.log.info({ reminders: result.sent }, 'deadline reminders sent');

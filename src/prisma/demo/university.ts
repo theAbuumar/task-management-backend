@@ -34,7 +34,12 @@ import type {
 } from '@prisma/client';
 import { DEFAULT_STATES } from '../../modules/projects/service.js';
 import { buildStorageKey, type StorageDriver } from '../../lib/storage.js';
-import { addDays, localDate, localHour } from '../../lib/tz.js';
+import { addDays, localDate, localHour, zonedTime } from '../../lib/tz.js';
+import {
+  nextRunAfter,
+  occurrenceOnOrAfter,
+  type Schedule,
+} from '../../modules/recurring/schedule.js';
 import { PDF_MIME, XLSX_MIME, minutesPdf, reportPdf, summaryXlsx } from './files.js';
 
 const SLUG = 'demo-university';
@@ -1871,6 +1876,382 @@ export async function seedDemo(
       deleted_at: duplicateDeleted,
       deleted_by_id: uid('pr_edu'),
     },
+  });
+
+  // ─── Чек-листы, шаблоны, повторяющиеся задачи (Ф6, ADR-030) ───
+  // The accreditation readiness checklist (3 of 7 ticked), checklists on two more
+  // accreditation tasks, two templates, and two recurring rules with the issues they
+  // have already created — the monthly attendance report and the weekly admissions
+  // summary — so the settings show «создано задач: 3» and the next run.
+  const accrInfo = projectInfo.get('accr')!;
+  async function checklist(
+    issueId: string,
+    items: { text: string; doneBy?: string; doneAt?: Date }[],
+  ): Promise<void> {
+    await prisma.issueChecklistItem.createMany({
+      data: items.map((item, order) => ({
+        issue_id: issueId,
+        text: item.text,
+        order,
+        is_done: Boolean(item.doneBy),
+        done_by_id: item.doneBy ? uid(item.doneBy) : null,
+        done_at: item.doneAt ? cap(item.doneAt) : null,
+      })),
+    });
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        checklist_total: items.length,
+        checklist_done: items.filter((i) => i.doneBy).length,
+      },
+    });
+    await writeActivity(
+      issueId,
+      items
+        .filter((i) => i.doneBy)
+        .map((i) => ({
+          action: 'issue.checklist_checked',
+          actor: i.doneBy!,
+          when: cap(i.doneAt!),
+          field: 'checklist',
+          new_value: i.text,
+        })),
+    );
+  }
+
+  const readinessCreated = cap(at(-12, 9));
+  const readiness = await prisma.issue.create({
+    data: {
+      workspace_id: wsId,
+      project_id: accrInfo.id,
+      sequence_id: accrInfo.next++,
+      title: 'Чек-лист готовности к аккредитационной экспертизе',
+      description:
+        'Пункты, без которых экспертиза не начнётся. Отмечайте по мере готовности — прогресс виден на доске.',
+      state_id: accrInfo.stateOf('started'),
+      priority: 'urgent',
+      kind: 'assignment',
+      controller_id: uid('pr_edu'),
+      requires_review: true,
+      basis: 'Приказ ректора №214 о подготовке к аккредитации',
+      start_date: readinessCreated,
+      due_date: at(18, 18),
+      created_by_id: uid('pr_edu'),
+      created_at: readinessCreated,
+      updated_at: cap(at(-1, 15)),
+    },
+  });
+  issueCount += 1;
+  await prisma.issueAssignee.createMany({
+    data: [
+      {
+        issue_id: readiness.id,
+        user_id: uid('umu'),
+        is_primary: true,
+        acknowledged_at: cap(at(-12, 11)),
+        created_at: readinessCreated,
+      },
+      {
+        issue_id: readiness.id,
+        user_id: uid('umu_spec'),
+        is_primary: false,
+        acknowledged_at: cap(at(-11, 10)),
+        created_at: readinessCreated,
+      },
+    ],
+  });
+  await prisma.issueWatcher.createMany({
+    data: ['pr_edu', 'umu', 'umu_spec'].map((k) => ({ issue_id: readiness.id, user_id: uid(k) })),
+    skipDuplicates: true,
+  });
+  await writeActivity(readiness.id, [
+    { action: 'issue.created', actor: 'pr_edu', when: readinessCreated },
+  ]);
+  notify('issue_assigned', 'pr_edu', ['umu', 'umu_spec'], readiness.id, readinessCreated);
+  await checklist(readiness.id, [
+    {
+      text: 'Отчёт о самообследовании утверждён учёным советом',
+      doneBy: 'umu',
+      doneAt: at(-9, 16),
+    },
+    {
+      text: 'Рабочие программы всех дисциплин размещены на сайте',
+      doneBy: 'umu_spec',
+      doneAt: at(-6, 12),
+    },
+    { text: 'Кадровая справка по программам подписана', doneBy: 'umu', doneAt: at(-2, 11) },
+    { text: 'Фонды оценочных средств обновлены' },
+    { text: 'Справка о материально-техническом обеспечении' },
+    { text: 'Отзывы работодателей собраны по всем программам' },
+    { text: 'Раздел «Сведения об образовательной организации» проверен' },
+  ]);
+  openWork.push({
+    id: readiness.id,
+    created: readinessCreated,
+    due: at(18, 18),
+    owners: ['umu', 'umu_spec'],
+    controller: 'pr_edu',
+    primary: 'umu',
+  });
+
+  // Two open accreditation tasks get their steps too: «2/4» and «1/3» on the board.
+  const accrOpen = await prisma.issue.findMany({
+    where: {
+      project_id: accrInfo.id,
+      parent_id: null,
+      is_distribution: false,
+      id: { not: readiness.id },
+      state: { group: { in: ['unstarted', 'started'] } },
+      deleted_at: null,
+    },
+    orderBy: { sequence_id: 'asc' },
+    take: 2,
+    include: { assignees: { where: { is_primary: true } } },
+  });
+  const steps = [
+    [
+      'Собрать исходные данные кафедр',
+      'Свести таблицу показателей',
+      'Согласовать с УМУ',
+      'Подписать у декана',
+    ],
+    ['Проверить перечень документов', 'Загрузить файлы в систему', 'Передать на проверку'],
+  ];
+  for (const [n, issue] of accrOpen.entries()) {
+    const owner = PEOPLE.find((p) => uid(p.key) === issue.assignees[0]?.user_id)?.key ?? 'umu';
+    await checklist(
+      issue.id,
+      steps[n]!.map((text, i) =>
+        i < 2 - n ? { text, doneBy: owner, doneAt: at(-5 + i, 14) } : { text },
+      ),
+    );
+  }
+
+  // Templates: one for the whole university, one of the accreditation project.
+  await prisma.issueTemplate.createMany({
+    data: [
+      {
+        workspace_id: wsId,
+        created_by_id: uid('rector'),
+        name: 'Отчёт подразделения к заседанию ректората',
+        data: {
+          title: 'Подготовить отчёт подразделения к заседанию ректората',
+          description:
+            'Кратко: что сделано за период, что не выполнено и почему, что нужно от ректората.',
+          kind: 'assignment',
+          priority: 'high',
+          controller_id: uid('rector'),
+          requires_review: true,
+          basis: 'План заседаний ректората',
+          checklist: [
+            'Собрать показатели подразделения за период',
+            'Подготовить справку на 1–2 страницы',
+            'Согласовать с курирующим проректором',
+          ],
+        },
+        due_in_days: 7,
+        created_at: at(-30),
+      },
+      {
+        workspace_id: wsId,
+        project_id: accrInfo.id,
+        created_by_id: uid('pr_edu'),
+        name: 'Раздел отчёта о самообследовании',
+        data: {
+          title: 'Подготовить раздел отчёта о самообследовании',
+          kind: 'assignment',
+          priority: 'high',
+          controller_id: uid('pr_edu'),
+          requires_review: true,
+          basis: 'Приказ ректора №214 о подготовке к аккредитации',
+          checklist: [
+            'Описание образовательной деятельности',
+            'Кадровое обеспечение',
+            'Учебно-методическое обеспечение',
+            'Материально-техническая база',
+          ],
+        },
+        due_in_days: 14,
+        created_at: at(-25),
+      },
+    ],
+  });
+
+  // Recurring rules, with the issues their past runs created.
+  async function recurring(opts: {
+    project: string;
+    author: string;
+    title: string;
+    description: string;
+    assignee: string;
+    controller: string;
+    checklist: string[];
+    dueInDays: number;
+    schedule: Omit<Schedule, 'start_date' | 'until'>;
+    startDaysAgo: number;
+  }): Promise<void> {
+    const info = projectInfo.get(opts.project)!;
+    const schedule: Schedule = {
+      ...opts.schedule,
+      start_date: day(at(-opts.startDaysAgo)),
+      until: null,
+    };
+    const rule = await prisma.recurringRule.create({
+      data: {
+        workspace_id: wsId,
+        project_id: info.id,
+        created_by_id: uid(opts.author),
+        data: {
+          title: opts.title,
+          description: opts.description,
+          kind: 'assignment',
+          priority: 'medium',
+          assignee_ids: [uid(opts.assignee)],
+          controller_id: uid(opts.controller),
+          requires_review: true,
+          checklist: opts.checklist,
+        },
+        due_in_days: opts.dueInDays,
+        ...schedule,
+        next_run_at: nextRunAfter(schedule, TZ, new Date(NOW)),
+        created_at: cap(at(-opts.startDaysAgo - 2, 15)),
+      },
+    });
+    // Every run so far, as the scheduler made it.
+    const runs: Date[] = [];
+    for (let d = occurrenceOnOrAfter(schedule, schedule.start_date); d; ) {
+      const run = zonedTime(d, schedule.time, TZ);
+      if (run.getTime() > NOW) break;
+      runs.push(run);
+      d = occurrenceOnOrAfter(schedule, addDays(d, 1));
+    }
+    for (const run of runs) {
+      const created = new Date(run.getTime() + between(1, 4) * 60_000);
+      const due = new Date(`${addDays(day(run), opts.dueInDays)}T12:00:00.000Z`);
+      const open = due.getTime() > NOW;
+      const completed = open
+        ? null
+        : cap(plusDays(created, Math.max(0.5, opts.dueInDays - 1 - rand())));
+      const issue = await prisma.issue.create({
+        data: {
+          workspace_id: wsId,
+          project_id: info.id,
+          sequence_id: info.next++,
+          title: opts.title,
+          description: opts.description,
+          state_id: info.stateOf(open ? 'started' : 'completed'),
+          priority: 'medium',
+          kind: 'assignment',
+          controller_id: uid(opts.controller),
+          requires_review: true,
+          recurring_rule_id: rule.id,
+          due_date: due,
+          completed_at: completed,
+          created_by_id: uid(opts.author),
+          created_at: created,
+          updated_at: completed ?? created,
+        },
+      });
+      issueCount += 1;
+      await prisma.issueAssignee.create({
+        data: {
+          issue_id: issue.id,
+          user_id: uid(opts.assignee),
+          is_primary: true,
+          acknowledged_at: cap(plusDays(created, 0.1)),
+          created_at: created,
+        },
+      });
+      await prisma.issueWatcher.createMany({
+        data: [...new Set([opts.author, opts.assignee, opts.controller])].map((k) => ({
+          issue_id: issue.id,
+          user_id: uid(k),
+        })),
+        skipDuplicates: true,
+      });
+      notify('issue_assigned', opts.author, [opts.assignee], issue.id, created);
+      const activity: Activity[] = [{ action: 'issue.created', actor: opts.author, when: created }];
+      if (completed) {
+        activity.push({
+          action: 'issue.updated',
+          actor: opts.controller,
+          when: completed,
+          field: 'state_id',
+          old_value: info.stateOf('started'),
+          new_value: info.stateOf('completed'),
+        });
+      }
+      await writeActivity(issue.id, activity);
+      await checklist(
+        issue.id,
+        opts.checklist.map((text, i) =>
+          completed || i === 0
+            ? {
+                text,
+                doneBy: opts.assignee,
+                doneAt: new Date(created.getTime() + (i + 1) * 3_600_000),
+              }
+            : { text },
+        ),
+      );
+      if (open) {
+        openWork.push({
+          id: issue.id,
+          created,
+          due,
+          owners: [opts.assignee],
+          controller: opts.controller,
+          primary: opts.assignee,
+        });
+      }
+    }
+  }
+
+  await recurring({
+    project: 'year',
+    author: 'umu',
+    title: 'Ежемесячный отчёт о посещаемости занятий',
+    description: 'Посещаемость по группам за прошедший месяц: пропуски, причины, меры.',
+    assignee: 'umu_spec',
+    controller: 'umu',
+    checklist: [
+      'Собрать данные из журналов групп',
+      'Свести таблицу по факультетам',
+      'Отметить группы с пропусками больше 20%',
+    ],
+    dueInDays: 5,
+    schedule: {
+      frequency: 'monthly',
+      interval: 1,
+      by_weekday: [],
+      by_monthday: 1,
+      by_month: null,
+      time: '09:00',
+    },
+    startDaysAgo: 80,
+  });
+  await recurring({
+    project: 'adm',
+    author: 'pr_edu',
+    title: 'Сводка по приёмной кампании за неделю',
+    description: 'Заявления, зачисленные, звонки и обращения за неделю — к планёрке проректора.',
+    assignee: 'umu',
+    controller: 'pr_edu',
+    checklist: [
+      'Выгрузить статистику заявлений',
+      'Сравнить с прошлым годом',
+      'Отправить проректору',
+    ],
+    dueInDays: 4,
+    schedule: {
+      frequency: 'weekly',
+      interval: 1,
+      by_weekday: [1],
+      by_monthday: null,
+      by_month: null,
+      time: '08:30',
+    },
+    startDaysAgo: 20,
   });
 
   // ─── Reminders the scheduler would have sent (control/reminders.ts) ───

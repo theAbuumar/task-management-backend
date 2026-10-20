@@ -82,3 +82,41 @@ export function startOfLocalDay(date: string, timeZone: string): Date {
   const offset = asUtc - guess.getTime();
   return new Date(guess.getTime() - offset);
 }
+
+/** Offset of `timeZone` at instant `at`, in ms: local wall clock − UTC. */
+function zoneOffset(at: Date, timeZone: string): number {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(at)
+      .map((x) => [x.type, x.value]),
+  );
+  const asUtc = Date.UTC(
+    Number(p.year),
+    Number(p.month) - 1,
+    Number(p.day),
+    Number(p.hour),
+    Number(p.minute),
+  );
+  return asUtc - Math.floor(at.getTime() / 60_000) * 60_000;
+}
+
+/**
+ * The UTC instant of local wall-clock `time` ("09:00") on local date `date` in
+ * `timeZone` — when a recurring rule runs (6.B4). Probes the offset twice, so a
+ * time right after a DST switch lands on the right side of it.
+ */
+export function zonedTime(date: string, time: string, timeZone: string): Date {
+  const [h, m] = time.split(':').map(Number);
+  const wall = Date.parse(`${date}T00:00:00Z`) + ((h ?? 0) * 60 + (m ?? 0)) * 60_000;
+  let at = wall - zoneOffset(new Date(wall), timeZone);
+  at = wall - zoneOffset(new Date(at), timeZone);
+  return new Date(at);
+}

@@ -51,6 +51,21 @@ async function swaggerPlugin(app: FastifyInstance): Promise<void> {
             'Черновики (7.B5): the create form saves itself as a personal draft while it is typed; «Опубликовать» turns it into an issue through the same rules as creating one.',
         },
         {
+          name: 'Checklist',
+          description:
+            'Чек-лист задачи (6.B5, ADR-030): its steps, ticked with who and when. The issue keeps `checklist_total`/`checklist_done` for lists and boards. Every change but a reorder is written to the history; a guest only reads.',
+        },
+        {
+          name: 'Recurring',
+          description:
+            'Повторяющиеся задачи (6.B4, ADR-030): a rule keeps the fields of an issue and a schedule in the workspace zone; the scheduler creates one issue per run on behalf of its author, never twice, and one for all runs missed while the server was off. «31-го» runs on the last day of a shorter month.',
+        },
+        {
+          name: 'Templates',
+          description:
+            'Шаблоны задач (6.B3, ADR-030): typical issues with their controller, deadline offset and checklist — workspace-wide (admins manage them) or of one project. The create form fills itself from a template; `…/apply` creates the issue at once.',
+        },
+        {
           name: 'Activity',
           description:
             'History of an issue (`…/issues/:id/activity`) and the workspace feed (`GET /workspaces/:slug/activity`, 7.B3) for admins and department heads.',

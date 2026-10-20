@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { LocalStorageDriver } from '../src/lib/storage.js';
 import { seedDemo, DOMAIN, SLUG, type SeedDemoResult } from '../src/prisma/demo/university.js';
 import { runReminders } from '../src/modules/control/reminders.js';
+import { runRecurring } from '../src/modules/recurring/service.js';
 import {
   AUDIT_GROUPS,
   AuditQuerySchema,
@@ -124,6 +125,51 @@ describe('demo seed (13.B1)', () => {
         ),
       ).toBe(true);
     }
+  });
+
+  it('has the Ф6 tools: a 3-of-7 checklist, two templates, two rules with their issues', async () => {
+    const readiness = await prisma.issue.findFirstOrThrow({
+      where: {
+        workspace_id: seeded.workspaceId,
+        title: 'Чек-лист готовности к аккредитационной экспертизе',
+      },
+      include: { checklist: true },
+    });
+    expect(readiness).toMatchObject({ checklist_total: 7, checklist_done: 3 });
+    expect(readiness.checklist.filter((i) => i.is_done)).toHaveLength(3);
+    // The counters always match the items.
+    const withItems = await prisma.issue.findMany({
+      where: { workspace_id: seeded.workspaceId, checklist_total: { gt: 0 } },
+      include: { checklist: true },
+    });
+    expect(withItems.length).toBeGreaterThanOrEqual(3);
+    for (const issue of withItems) {
+      expect(issue.checklist_total).toBe(issue.checklist.length);
+      expect(issue.checklist_done).toBe(issue.checklist.filter((i) => i.is_done).length);
+    }
+
+    const templates = await prisma.issueTemplate.findMany({
+      where: { workspace_id: seeded.workspaceId },
+    });
+    expect(templates.map((t) => t.project_id === null)).toEqual(
+      expect.arrayContaining([true, false]),
+    );
+
+    const rules = await prisma.recurringRule.findMany({
+      where: { workspace_id: seeded.workspaceId },
+      include: { issues: true },
+    });
+    expect(rules).toHaveLength(2);
+    for (const rule of rules) {
+      expect(rule.issues.length).toBeGreaterThanOrEqual(2);
+      expect(rule.next_run_at!.getTime()).toBeGreaterThan(NOW);
+    }
+    // The scheduler has nothing to make up: every past run has its issue.
+    const run = await runRecurring(prisma, {
+      now: new Date(NOW),
+      workspaceId: seeded.workspaceId,
+    });
+    expect(run).toEqual({ created: 0, failed: 0, paused: 0 });
   });
 
   it('has ready-made views: shared ones for everyone and a personal one for the prorector (7.B4)', async () => {
