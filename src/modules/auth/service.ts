@@ -345,6 +345,9 @@ export async function confirmAccountDeletion(
     // Personal AI dialogues and a pending Telegram draft go with the account (ADR-028).
     await tx.aiConversation.deleteMany({ where: { user_id: userId } });
     await tx.telegramAiDraft.deleteMany({ where: { user_id: userId } });
+    // Personal saved views are settings of the person (7.B4); shared ones stay —
+    // they are part of everyone's workspace, and admins manage them.
+    await tx.savedView.deleteMany({ where: { owner_id: userId, is_shared: false } });
     // Drop any outstanding codes for this account, on either channel.
     await tx.emailOtp.deleteMany({
       where: { OR: [{ user_id: userId }, ...(user.email ? [{ email: user.email }] : [])] },

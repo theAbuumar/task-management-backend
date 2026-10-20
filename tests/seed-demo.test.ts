@@ -126,6 +126,18 @@ describe('demo seed (13.B1)', () => {
     }
   });
 
+  it('has ready-made views: shared ones for everyone and a personal one for the prorector (7.B4)', async () => {
+    const views = await prisma.savedView.findMany({
+      where: { workspace_id: seeded.workspaceId },
+      include: { project: { select: { workspace_id: true } }, owner: { select: { email: true } } },
+    });
+    expect(views.filter((v) => v.is_shared).length).toBeGreaterThanOrEqual(3);
+    expect(views.some((v) => !v.is_shared && v.owner.email === 'pr.edu@demo.local')).toBe(true);
+    for (const v of views) {
+      if (v.project) expect(v.project.workspace_id).toBe(seeded.workspaceId);
+    }
+  });
+
   it('a deadline request in the history says which date was asked for, as the service records it', async () => {
     const rows = await prisma.activityLog.findMany({
       where: { workspace_id: seeded.workspaceId, action: 'issue.deadline_requested' },

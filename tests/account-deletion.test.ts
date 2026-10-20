@@ -252,6 +252,14 @@ describe('code-confirmed account deletion', () => {
     await app.prisma.workspaceMember.create({
       data: { workspace_id: ws.id, user_id: heir.userId, role: 'admin' },
     });
+    // A personal saved view is the person's setting; a shared one is everyone's (7.B4).
+    const views = (shared: boolean) =>
+      request(app.server)
+        .post(`/api/v1/workspaces/${ws.slug}/views`)
+        .set('Authorization', `Bearer ${owner.token}`)
+        .send({ name: shared ? 'Общий вид' : 'Мой вид', is_shared: shared });
+    const personalView = (await views(false)).body.id as string;
+    const sharedView = (await views(true)).body.id as string;
 
     const reqRes = await request(app.server)
       .post('/api/v1/auth/account/delete/request')
@@ -279,6 +287,9 @@ describe('code-confirmed account deletion', () => {
       where: { workspace_id_user_id: { workspace_id: ws.id, user_id: owner.userId } },
     });
     expect(ownerMembership).toBeNull();
+
+    expect(await app.prisma.savedView.findUnique({ where: { id: personalView } })).toBeNull();
+    expect(await app.prisma.savedView.findUnique({ where: { id: sharedView } })).not.toBeNull();
   });
 
   it('deletes a solely-owned workspace with no other members on deletion', async () => {

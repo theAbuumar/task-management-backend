@@ -1162,6 +1162,7 @@ export async function seedDemo(
     { id: string; identifier: string; stateOf: (g: StateGroup) => string; next: number }
   >();
 
+  const projectIdByKey = new Map<string, string>();
   for (const def of PROJECTS) {
     const project = await prisma.project.create({
       data: {
@@ -1228,6 +1229,7 @@ export async function seedDemo(
       return { title, assignee, scenario, created: cap(created) };
     });
     planned.sort((a, b) => a.created.getTime() - b.created.getTime());
+    projectIdByKey.set(def.key, project.id);
     const idByTitle = new Map<string, string>();
 
     for (const [index, plan] of planned.entries()) {
@@ -2173,6 +2175,56 @@ export async function seedDemo(
     }
   }
   await prisma.authSession.createMany({ data: sessions });
+
+  // ─── Saved views (7.B4, ADR-029): ready-made selections for the rector's office ───
+  const accr = projectIdByKey.get('accr')!;
+  await prisma.savedView.createMany({
+    data: [
+      {
+        workspace_id: wsId,
+        owner_id: uid('rector'),
+        name: 'Просроченные поручения',
+        filters: { kind: 'assignment', overdue: 'true' },
+        is_shared: true,
+        created_at: at(-20),
+      },
+      {
+        workspace_id: wsId,
+        owner_id: uid('rector'),
+        name: 'Поручения ФЭУ в работе',
+        filters: { department: deptId.get('econ')!, kind: 'assignment', open: 'true' },
+        is_shared: true,
+        created_at: at(-18),
+      },
+      {
+        workspace_id: wsId,
+        project_id: accr,
+        owner_id: uid('rector'),
+        name: 'На проверке',
+        filters: { quick: 'review' },
+        display: { view: 'list' },
+        is_shared: true,
+        created_at: at(-15),
+      },
+      {
+        workspace_id: wsId,
+        project_id: accr,
+        owner_id: uid('pr_edu'),
+        name: 'Мой контроль — календарь',
+        filters: { quick: 'control' },
+        display: { view: 'calendar' },
+        created_at: at(-12),
+      },
+      {
+        workspace_id: wsId,
+        project_id: accr,
+        owner_id: uid('rector'),
+        name: 'План аккредитации — таймлайн',
+        display: { view: 'timeline' },
+        created_at: at(-10),
+      },
+    ],
+  });
 
   return {
     workspaceId: wsId,

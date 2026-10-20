@@ -62,6 +62,12 @@ beforeAll(async () => {
   const comments = api(`/projects/${project.body.id}/issues/${issue.body.id}/comments`);
   await as(me).post(comments, { body: 'Мой комментарий' });
   await as(colleague).post(comments, { body: 'Чужой комментарий' });
+  await as(me).post(api('/views'), {
+    name: 'Мои просроченные',
+    project_id: project.body.id,
+    filters: { quick: 'overdue' },
+    display: { view: 'calendar' },
+  });
 });
 
 afterAll(async () => {
@@ -100,6 +106,16 @@ describe('my data export (12.B13)', () => {
     expect(data.work.assigned_issues[0]).toMatchObject({ key: issueKey, responsible: true });
     expect(data.work.comments).toEqual([
       expect.objectContaining({ issue: issueKey, body: 'Мой комментарий' }),
+    ]);
+    expect(data.saved_views).toEqual([
+      expect.objectContaining({
+        name: 'Мои просроченные',
+        workspace: SLUG,
+        project: 'DEX',
+        filters: { quick: 'overdue' },
+        display: { view: 'calendar' },
+        shared: false,
+      }),
     ]);
     expect(data.audit_log.some((e: { action: string }) => e.action === 'auth.login')).toBe(true);
   });

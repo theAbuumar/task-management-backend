@@ -197,6 +197,7 @@ model User {
   member_invites_received   WorkspaceMemberInvite[] @relation("MemberInviteTarget")
   ai_usage                  AiUsage[]
   ai_conversations          AiConversation[]
+  saved_views               SavedView[]
 }
 
 // Rotating refresh tokens. One row per live token; revoked_at set on logout/rotation.
@@ -383,6 +384,7 @@ model Workspace {
   member_invites   WorkspaceMemberInvite[] @relation("WorkspaceMemberInvites")
   ai_usage         AiUsage[]
   ai_conversations AiConversation[]
+  saved_views      SavedView[]
 }
 
 model WorkspaceMember {
@@ -464,6 +466,7 @@ model Project {
   labels     Label[]
   cycles     Cycle[]
   modules    Module[]
+  views      SavedView[]
 
   @@unique([workspace_id, identifier])
   @@index([workspace_id])
@@ -990,4 +993,30 @@ model TelegramAiDraft {
   expires_at   DateTime
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
+}
+
+// A saved view (7.B4, ADR-029): a named set of page parameters — filters and how
+// to show the work. With a project it opens that project's board, without — the
+// workspace list (/issues). Personal views are their author's; shared ones are
+// seen by everyone who sees the project and managed by admins.
+model SavedView {
+  id           String   @id @default(uuid())
+  workspace_id String
+  project_id   String?
+  owner_id     String
+  name         String
+  // { key: string | string[] } — the page's URL filters.
+  filters      Json     @default("{}")
+  // { view?: board | list | calendar | timeline }.
+  display      Json     @default("{}")
+  is_shared    Boolean  @default(false)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  project   Project?  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  owner     User      @relation(fields: [owner_id], references: [id], onDelete: Cascade)
+
+  @@index([workspace_id, owner_id])
+  @@index([project_id])
 }

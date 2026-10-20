@@ -43,6 +43,7 @@ export async function exportMyData(prisma: PrismaClient, userId: string) {
     conversations,
     aiUsage,
     audit,
+    views,
   ] = await Promise.all([
     prisma.user.findUniqueOrThrow({
       where: { id: userId },
@@ -215,13 +216,27 @@ export async function exportMyData(prisma: PrismaClient, userId: string) {
       orderBy: newest,
       take: MAX_ROWS,
     }),
+    // Saved views (7.B4): the ones this person made, personal and shared.
+    prisma.savedView.findMany({
+      where: { owner_id: userId },
+      select: {
+        name: true,
+        filters: true,
+        display: true,
+        is_shared: true,
+        created_at: true,
+        workspace: { select: { slug: true } },
+        project: { select: { identifier: true } },
+      },
+      orderBy: newest,
+    }),
   ]);
 
   return {
     format: DATA_EXPORT_FORMAT,
     exported_at: new Date(),
     about:
-      'Ваши данные в системе поручений: профиль, способы входа и сеансы, пространства, ваша работа, уведомления, диалоги с AI и ваши записи в журнале аудита. Задачи названы ключом и заголовком; тексты других людей сюда не входят; файлы перечислены без содержимого. Что и зачем хранится — docs/PRIVACY.md.',
+      'Ваши данные в системе поручений: профиль, способы входа и сеансы, пространства, ваша работа, уведомления, диалоги с AI, сохранённые виды и ваши записи в журнале аудита. Задачи названы ключом и заголовком; тексты других людей сюда не входят; файлы перечислены без содержимого. Что и зачем хранится — docs/PRIVACY.md.',
     profile: user,
     sign_in_methods: identities,
     sessions,
@@ -296,6 +311,15 @@ export async function exportMyData(prisma: PrismaClient, userId: string) {
       read_at: n.read_at,
     })),
     ai: { conversations, usage: aiUsage },
+    saved_views: views.map((v) => ({
+      name: v.name,
+      workspace: v.workspace.slug,
+      project: v.project?.identifier ?? null,
+      filters: v.filters,
+      display: v.display,
+      shared: v.is_shared,
+      created_at: v.created_at,
+    })),
     audit_log: audit,
   };
 }

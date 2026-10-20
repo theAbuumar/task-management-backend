@@ -41,6 +41,16 @@ async function swaggerPlugin(app: FastifyInstance): Promise<void> {
             "Глобальный поиск (7.B2) for the command palette: issues by key or by words with Russian morphology (PostgreSQL full-text search), projects, people and departments of the workspace, within the caller's visibility.",
         },
         {
+          name: 'Saved views',
+          description:
+            "Сохранённые виды (7.B4, ADR-029): a named set of page filters and a display mode. With `project_id` a view opens that project's board, without — the workspace list. Personal views are seen and changed by their author only; shared ones are seen by everyone who sees the project and managed by admins and the owner.",
+        },
+        {
+          name: 'Activity',
+          description:
+            'History of an issue (`…/issues/:id/activity`) and the workspace feed (`GET /workspaces/:slug/activity`, 7.B3) for admins and department heads.',
+        },
+        {
           name: 'Invitations',
           description:
             'Personal inbox for workspace invitations that target already-registered users. Not workspace-scoped: the recipient is not yet a member. Admins create these via `POST /workspaces/{slug}/members/invite-user` (tagged Workspaces); delivery fans out to email and Telegram.',
