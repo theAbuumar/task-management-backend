@@ -1168,6 +1168,8 @@ export async function seedDemo(
   >();
 
   const projectIdByKey = new Map<string, string>();
+  // Every project issue by its title, with its creation time (Ф4 links below).
+  const issueByTitle = new Map<string, { id: string; created: Date }>();
   for (const def of PROJECTS) {
     const project = await prisma.project.create({
       data: {
@@ -1304,6 +1306,7 @@ export async function seedDemo(
       });
       issueCount += 1;
       idByTitle.set(title, issue.id);
+      issueByTitle.set(title, { id: issue.id, created });
 
       const assignees = [assignee, ...(coAssignee ? [coAssignee] : [])];
       const reviewer = controller ?? creator;
@@ -1586,6 +1589,18 @@ export async function seedDemo(
       ];
     });
     if (links.length > 0) await prisma.issueLink.createMany({ data: links });
+    // Recorded on both issues, as POST I/relations does (4.F6): the project lead
+    // linked them once the later of the two existed.
+    for (const [blocker, blocked] of DEPENDENCIES[def.key] ?? []) {
+      const a = issueByTitle.get(blocker)!;
+      const b = issueByTitle.get(blocked)!;
+      const when = cap(
+        new Date(Math.max(a.created.getTime(), b.created.getTime()) + 2 * 3_600_000),
+      );
+      const entry = { action: 'issue.relation_added', actor: def.lead, when };
+      await writeActivity(a.id, [{ ...entry, field: 'blocks', new_value: b.id }]);
+      await writeActivity(b.id, [{ ...entry, field: 'blocked_by', new_value: a.id }]);
+    }
   }
 
   // ─── Рассылки подразделениям (6.B1) ───
@@ -2254,6 +2269,320 @@ export async function seedDemo(
     },
     startDaysAgo: 20,
   });
+
+  // ─── Этапы, модули, подзадачи, связи, ветки обсуждения (Ф4, ADR-031) ───
+  // Accreditation in three stages (August documents — done, the self-evaluation —
+  // now, the experts' visit — ahead), three modules with their leads, the
+  // presentation for the experts split into sub-issues (1 of 3 done), a link to
+  // the digitalization project and a discussion with replies, a mention and an
+  // edit — so the card shows «Этап», «Модули», «Подзадачи», «Связи», «изменено».
+  const accrIssue = (title: string) => {
+    const found = issueByTitle.get(title);
+    if (!found) throw new Error(`Demo issue not found: ${title}`);
+    return found;
+  };
+  const READINESS = 'Чек-лист готовности к аккредитационной экспертизе';
+  issueByTitle.set(READINESS, { id: readiness.id, created: readinessCreated });
+
+  const CYCLES: {
+    name: string;
+    description: string;
+    start: number;
+    end: number;
+    titles: string[];
+  }[] = [
+    {
+      name: 'Сбор документов',
+      description: 'Рабочие программы и учебные планы в актуальной редакции.',
+      start: -80,
+      end: -50,
+      titles: [
+        'Актуализировать рабочие программы дисциплин',
+        'Проверить соответствие учебных планов стандарту',
+      ],
+    },
+    {
+      name: 'Самообследование',
+      description: 'Отчёт о самообследовании и всё, что в него входит.',
+      start: -49,
+      end: 12,
+      titles: [
+        'Подготовить отчёт о самообследовании факультета',
+        'Собрать сведения о кадровом обеспечении программ',
+        'Заполнить мониторинг эффективности программы',
+        'Провести внутренний аудит образовательной программы',
+        'Подготовить справку о материально-техническом обеспечении',
+        'Обновить фонды оценочных средств',
+        READINESS,
+      ],
+    },
+    {
+      name: 'Визит экспертной комиссии',
+      description: 'Встреча экспертов: расписание, презентация, проверка ЭИОС.',
+      start: 13,
+      end: 45,
+      titles: [
+        'Подготовить презентацию для экспертной комиссии',
+        'Согласовать расписание визита экспертов',
+        'Проверить электронную информационно-образовательную среду',
+        'Сформировать портфолио достижений студентов',
+        'Подготовить отзывы работодателей по программам',
+      ],
+    },
+  ];
+  for (const c of CYCLES) {
+    const createdAt = cap(at(Math.min(c.start, -1) - 2, 10));
+    const cycle = await prisma.cycle.create({
+      data: {
+        workspace_id: wsId,
+        project_id: accrInfo.id,
+        name: c.name,
+        description: c.description,
+        start_date: at(c.start, 9),
+        end_date: at(c.end, 18),
+        created_at: createdAt,
+        updated_at: createdAt,
+      },
+    });
+    for (const title of c.titles) {
+      const issue = accrIssue(title);
+      await prisma.issue.update({ where: { id: issue.id }, data: { cycle_id: cycle.id } });
+      const when = cap(
+        new Date(Math.max(issue.created.getTime(), createdAt.getTime()) + 3_600_000),
+      );
+      await writeActivity(issue.id, [
+        { action: 'issue.updated', actor: 'pr_edu', when, field: 'cycle_id', new_value: cycle.id },
+      ]);
+    }
+  }
+
+  const MODULES: {
+    name: string;
+    description: string;
+    status: 'backlog' | 'in_progress' | 'paused' | 'completed' | 'cancelled';
+    lead: string;
+    start: number;
+    target: number;
+    titles: string[];
+  }[] = [
+    {
+      name: 'Отчёт о самообследовании',
+      description: 'Разделы отчёта, справки и мониторинг — всё, что войдёт в отчёт.',
+      status: 'in_progress',
+      lead: 'umu',
+      start: -49,
+      target: 12,
+      titles: [
+        'Подготовить отчёт о самообследовании факультета',
+        'Заполнить мониторинг эффективности программы',
+        'Подготовить справку о материально-техническом обеспечении',
+        READINESS,
+      ],
+    },
+    {
+      name: 'Кадровое обеспечение',
+      description: 'Сведения о преподавателях, повышение квалификации, отзывы работодателей.',
+      status: 'in_progress',
+      lead: 'dean_econ',
+      start: -40,
+      target: 20,
+      titles: [
+        'Собрать сведения о кадровом обеспечении программ',
+        'Подготовить отзывы работодателей по программам',
+      ],
+    },
+    {
+      name: 'Встреча экспертов',
+      description: 'Всё к приезду комиссии: программа визита, презентация, сайт и ЭИОС.',
+      status: 'backlog',
+      lead: 'pr_edu',
+      start: 13,
+      target: 45,
+      titles: [
+        'Подготовить презентацию для экспертной комиссии',
+        'Согласовать расписание визита экспертов',
+        'Проверить электронную информационно-образовательную среду',
+      ],
+    },
+  ];
+  for (const m of MODULES) {
+    const createdAt = cap(at(Math.min(m.start, -1) - 1, 11));
+    const mod = await prisma.module.create({
+      data: {
+        workspace_id: wsId,
+        project_id: accrInfo.id,
+        name: m.name,
+        description: m.description,
+        status: m.status,
+        lead_id: uid(m.lead),
+        start_date: at(m.start, 9),
+        target_date: at(m.target, 18),
+        created_at: createdAt,
+        updated_at: createdAt,
+      },
+    });
+    for (const title of m.titles) {
+      const issue = accrIssue(title);
+      const when = cap(
+        new Date(Math.max(issue.created.getTime(), createdAt.getTime()) + 2 * 3_600_000),
+      );
+      await prisma.moduleIssue.create({
+        data: { module_id: mod.id, issue_id: issue.id, created_at: when },
+      });
+      await writeActivity(issue.id, [
+        { action: 'issue.module_added', actor: m.lead, when, new_value: mod.id },
+      ]);
+    }
+  }
+
+  // The presentation for the experts, split into sub-issues (4.F7).
+  const presentation = accrIssue('Подготовить презентацию для экспертной комиссии');
+  const SUBTASKS: { title: string; assignee: string; group: StateGroup; due: number }[] = [
+    {
+      title: 'Слайды о кадровом составе программ',
+      assignee: 'dean_econ',
+      group: 'completed',
+      due: 6,
+    },
+    {
+      title: 'Слайды о материально-технической базе',
+      assignee: 'umu_spec',
+      group: 'started',
+      due: 9,
+    },
+    {
+      title: 'Репетиция выступления перед ректоратом',
+      assignee: 'umu',
+      group: 'unstarted',
+      due: 12,
+    },
+  ];
+  for (const [i, sub] of SUBTASKS.entries()) {
+    const created = cap(new Date(presentation.created.getTime() + (i + 1) * 3_600_000));
+    const completed = sub.group === 'completed' ? cap(at(-1, 16)) : null;
+    const child = await prisma.issue.create({
+      data: {
+        workspace_id: wsId,
+        project_id: accrInfo.id,
+        sequence_id: accrInfo.next++,
+        title: sub.title,
+        state_id: accrInfo.stateOf(sub.group),
+        priority: 'medium',
+        parent_id: presentation.id,
+        due_date: at(sub.due, 18),
+        completed_at: completed,
+        created_by_id: uid('pr_edu'),
+        created_at: created,
+        updated_at: completed ?? created,
+      },
+    });
+    issueCount += 1;
+    await prisma.issueAssignee.create({
+      data: {
+        issue_id: child.id,
+        user_id: uid(sub.assignee),
+        is_primary: true,
+        created_at: created,
+      },
+    });
+    await writeActivity(child.id, [
+      { action: 'issue.created', actor: 'pr_edu', when: created },
+      {
+        action: 'issue.assignee_added',
+        actor: 'pr_edu',
+        when: created,
+        new_value: uid(sub.assignee),
+      },
+      ...(completed
+        ? [
+            {
+              action: 'issue.updated',
+              actor: sub.assignee,
+              when: completed,
+              field: 'state_id',
+              new_value: accrInfo.stateOf('completed'),
+            },
+          ]
+        : []),
+    ]);
+    notify('issue_assigned', 'pr_edu', [sub.assignee], child.id, created);
+  }
+
+  // Across projects: the e-learning check relates to the schedule integration.
+  const eios = accrIssue('Проверить электронную информационно-образовательную среду');
+  const schedule = issueByTitle.get('Интегрировать расписание с личным кабинетом студента')!;
+  await prisma.issueLink.createMany({
+    data: [
+      { issue_id: eios.id, related_issue_id: schedule.id, relation_type: 'relates_to' },
+      { issue_id: schedule.id, related_issue_id: eios.id, relation_type: 'relates_to' },
+    ],
+  });
+  const linkedAt = cap(
+    new Date(Math.max(eios.created.getTime(), schedule.created.getTime()) + 3_600_000),
+  );
+  await writeActivity(eios.id, [
+    {
+      action: 'issue.relation_added',
+      actor: 'pr_edu',
+      when: linkedAt,
+      field: 'relates_to',
+      new_value: schedule.id,
+    },
+  ]);
+  await writeActivity(schedule.id, [
+    {
+      action: 'issue.relation_added',
+      actor: 'pr_edu',
+      when: linkedAt,
+      field: 'relates_to',
+      new_value: eios.id,
+    },
+  ]);
+
+  // A discussion on the readiness checklist: a mention, two replies, an edit.
+  const askedAt = cap(at(-2, 11));
+  const ask = await prisma.comment.create({
+    data: {
+      issue_id: readiness.id,
+      author_id: uid('pr_edu'),
+      body: `@${handleOf(person('umu'))} эксперты начнут с ЭИОС и раздела «Сведения об образовательной организации». Что осталось сделать?`,
+      created_at: askedAt,
+      updated_at: askedAt,
+    },
+  });
+  const answeredAt = cap(at(-2, 15));
+  const answer = await prisma.comment.create({
+    data: {
+      issue_id: readiness.id,
+      author_id: uid('umu'),
+      parent_comment_id: ask.id,
+      body: 'Осталось обновить раздел на сайте. **Срок — пятница**, сделает Носирова Д. Х.',
+      created_at: answeredAt,
+      updated_at: answeredAt,
+    },
+  });
+  const doneAt = cap(at(-1, 10));
+  const editedAt = cap(at(-1, 11));
+  const done = await prisma.comment.create({
+    data: {
+      issue_id: readiness.id,
+      author_id: uid('umu_spec'),
+      parent_comment_id: ask.id,
+      body: 'Раздел обновлён, ссылки проверены:\n- структура и органы управления\n- документы и образовательные стандарты\n- материально-техническое обеспечение',
+      created_at: doneAt,
+      updated_at: editedAt,
+      edited_at: editedAt,
+    },
+  });
+  await writeActivity(readiness.id, [
+    { action: 'comment.created', actor: 'pr_edu', when: askedAt, new_value: ask.id },
+    { action: 'comment.created', actor: 'umu', when: answeredAt, new_value: answer.id },
+    { action: 'comment.created', actor: 'umu_spec', when: doneAt, new_value: done.id },
+    { action: 'comment.updated', actor: 'umu_spec', when: editedAt, new_value: done.id },
+  ]);
+  notify('mentioned', 'pr_edu', ['umu'], readiness.id, askedAt, { entity: ask.id });
+  notify('comment_added', 'umu', ['pr_edu'], readiness.id, answeredAt, { entity: answer.id });
+  notify('comment_added', 'umu_spec', ['pr_edu', 'umu'], readiness.id, doneAt, { entity: done.id });
 
   // ─── Reminders the scheduler would have sent (control/reminders.ts) ───
   // Same recipients and ReminderLog keys, so a running scheduler finds them claimed.

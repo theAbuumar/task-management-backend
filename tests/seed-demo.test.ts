@@ -172,6 +172,73 @@ describe('demo seed (13.B1)', () => {
     expect(run).toEqual({ created: 0, failed: 0, paused: 0 });
   });
 
+  it('has the Ф4 structure: three stages, modules with leads, sub-issues, a thread (ADR-031)', async () => {
+    const accr = await prisma.project.findFirstOrThrow({
+      where: { workspace_id: seeded.workspaceId, identifier: 'ACCR' },
+    });
+    const cycles = await prisma.cycle.findMany({
+      where: { project_id: accr.id },
+      include: { issues: { select: { id: true } } },
+      orderBy: { start_date: 'asc' },
+    });
+    expect(cycles.map((c) => c.name)).toEqual([
+      'Сбор документов',
+      'Самообследование',
+      'Визит экспертной комиссии',
+    ]);
+    // Done, now and ahead.
+    expect(cycles[0]!.end_date!.getTime()).toBeLessThan(NOW);
+    expect(cycles[1]!.start_date!.getTime()).toBeLessThan(NOW);
+    expect(cycles[1]!.end_date!.getTime()).toBeGreaterThan(NOW);
+    expect(cycles[2]!.start_date!.getTime()).toBeGreaterThan(NOW);
+    expect(cycles.every((c) => c.issues.length >= 2)).toBe(true);
+
+    const modules = await prisma.module.findMany({
+      where: { project_id: accr.id },
+      include: { issues: true },
+    });
+    expect(modules).toHaveLength(3);
+    expect(modules.every((m) => m.lead_id && m.issues.length >= 2)).toBe(true);
+
+    // Joining a stage or a module is in the issue's history, as the services write it.
+    const joined = await prisma.activityLog.count({
+      where: {
+        workspace_id: seeded.workspaceId,
+        OR: [{ field: 'cycle_id' }, { action: 'issue.module_added' }],
+      },
+    });
+    expect(joined).toBe(
+      cycles.reduce((n, c) => n + c.issues.length, 0) +
+        modules.reduce((n, m) => n + m.issues.length, 0),
+    );
+
+    const presentation = await prisma.issue.findFirstOrThrow({
+      where: { project_id: accr.id, title: 'Подготовить презентацию для экспертной комиссии' },
+      include: { children: { include: { state: true } } },
+    });
+    expect(presentation.children).toHaveLength(3);
+    expect(presentation.children.filter((c) => c.state.group === 'completed')).toHaveLength(1);
+
+    // A thread: the question, two replies, one of them edited.
+    const thread = await prisma.comment.findMany({
+      where: { issue: { title: 'Чек-лист готовности к аккредитационной экспертизе' } },
+      orderBy: { created_at: 'asc' },
+    });
+    const head = thread.find((c) => c.body.startsWith('@'))!;
+    const replies = thread.filter((c) => c.parent_comment_id === head.id);
+    expect(replies).toHaveLength(2);
+    expect(replies.some((c) => c.edited_at)).toBe(true);
+
+    // Every relation is in the history of both its issues.
+    const relations = await prisma.issueLink.count({
+      where: { issue: { workspace_id: seeded.workspaceId } },
+    });
+    const recorded = await prisma.activityLog.count({
+      where: { workspace_id: seeded.workspaceId, action: 'issue.relation_added' },
+    });
+    expect(recorded).toBe(relations);
+  });
+
   it('has ready-made views: shared ones for everyone and a personal one for the prorector (7.B4)', async () => {
     const views = await prisma.savedView.findMany({
       where: { workspace_id: seeded.workspaceId },
