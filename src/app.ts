@@ -41,6 +41,7 @@ import { issueRelationRoutes, projectRelationRoutes } from './modules/issues/rel
 import { activityRoutes } from './modules/activity/routes.js';
 import { workspaceActivityRoutes } from './modules/activity/feed-routes.js';
 import { viewRoutes } from './modules/views/routes.js';
+import { draftRoutes } from './modules/drafts/routes.js';
 import { attachmentRoutes, attachmentDeleteRoutes } from './modules/attachments/routes.js';
 import { notificationRoutes } from './modules/notifications/routes.js';
 import { inviteRoutes } from './modules/invites/routes.js';
@@ -258,6 +259,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(trashRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/trash' });
   await app.register(searchRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/search' });
   await app.register(viewRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/views' });
+  await app.register(draftRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/drafts' });
   await app.register(aboutRoutes, { prefix: '/api/v1/about' });
   // Live updates: bell, boards, the open issue (Ф8 8.B1).
   await app.register(eventRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/events' });

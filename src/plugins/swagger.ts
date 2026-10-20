@@ -46,6 +46,11 @@ async function swaggerPlugin(app: FastifyInstance): Promise<void> {
             "Сохранённые виды (7.B4, ADR-029): a named set of page filters and a display mode. With `project_id` a view opens that project's board, without — the workspace list. Personal views are seen and changed by their author only; shared ones are seen by everyone who sees the project and managed by admins and the owner.",
         },
         {
+          name: 'Drafts',
+          description:
+            'Черновики (7.B5): the create form saves itself as a personal draft while it is typed; «Опубликовать» turns it into an issue through the same rules as creating one.',
+        },
+        {
           name: 'Activity',
           description:
             'History of an issue (`…/issues/:id/activity`) and the workspace feed (`GET /workspaces/:slug/activity`, 7.B3) for admins and department heads.',

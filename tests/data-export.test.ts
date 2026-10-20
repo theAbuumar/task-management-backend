@@ -68,6 +68,10 @@ beforeAll(async () => {
     filters: { quick: 'overdue' },
     display: { view: 'calendar' },
   });
+  await as(me).post(api('/drafts'), {
+    project_id: project.body.id,
+    data: { title: 'Недописанное поручение' },
+  });
 });
 
 afterAll(async () => {
@@ -115,6 +119,13 @@ describe('my data export (12.B13)', () => {
         filters: { quick: 'overdue' },
         display: { view: 'calendar' },
         shared: false,
+      }),
+    ]);
+    expect(data.issue_drafts).toEqual([
+      expect.objectContaining({
+        workspace: SLUG,
+        project: 'DEX',
+        data: { title: 'Недописанное поручение' },
       }),
     ]);
     expect(data.audit_log.some((e: { action: string }) => e.action === 'auth.login')).toBe(true);

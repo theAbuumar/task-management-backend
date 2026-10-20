@@ -348,6 +348,8 @@ export async function confirmAccountDeletion(
     // Personal saved views are settings of the person (7.B4); shared ones stay —
     // they are part of everyone's workspace, and admins manage them.
     await tx.savedView.deleteMany({ where: { owner_id: userId, is_shared: false } });
+    // Drafts of new issues are the person's unsent text (7.B5).
+    await tx.issueDraft.deleteMany({ where: { user_id: userId } });
     // Drop any outstanding codes for this account, on either channel.
     await tx.emailOtp.deleteMany({
       where: { OR: [{ user_id: userId }, ...(user.email ? [{ email: user.email }] : [])] },

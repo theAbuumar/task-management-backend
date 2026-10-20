@@ -198,6 +198,7 @@ model User {
   ai_usage                  AiUsage[]
   ai_conversations          AiConversation[]
   saved_views               SavedView[]
+  issue_drafts              IssueDraft[]
 }
 
 // Rotating refresh tokens. One row per live token; revoked_at set on logout/rotation.
@@ -385,6 +386,7 @@ model Workspace {
   ai_usage         AiUsage[]
   ai_conversations AiConversation[]
   saved_views      SavedView[]
+  issue_drafts     IssueDraft[]
 }
 
 model WorkspaceMember {
@@ -467,6 +469,7 @@ model Project {
   cycles     Cycle[]
   modules    Module[]
   views      SavedView[]
+  drafts     IssueDraft[]
 
   @@unique([workspace_id, identifier])
   @@index([workspace_id])
@@ -1018,5 +1021,25 @@ model SavedView {
   owner     User      @relation(fields: [owner_id], references: [id], onDelete: Cascade)
 
   @@index([workspace_id, owner_id])
+  @@index([project_id])
+}
+
+// A draft of a new issue (7.B5): the create form saved as it is typed. Personal —
+// only its author sees it; «Опубликовать» turns it into an issue.
+model IssueDraft {
+  id           String   @id @default(uuid())
+  workspace_id String
+  user_id      String
+  project_id   String?
+  // The form as typed: title, description, kind, state, assignees, controller…
+  data         Json     @default("{}")
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  project   Project?  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+
+  @@index([workspace_id, user_id, updated_at])
   @@index([project_id])
 }

@@ -44,6 +44,7 @@ export async function exportMyData(prisma: PrismaClient, userId: string) {
     aiUsage,
     audit,
     views,
+    drafts,
   ] = await Promise.all([
     prisma.user.findUniqueOrThrow({
       where: { id: userId },
@@ -230,13 +231,25 @@ export async function exportMyData(prisma: PrismaClient, userId: string) {
       },
       orderBy: newest,
     }),
+    // Drafts of new issues (7.B5): the form as it was typed.
+    prisma.issueDraft.findMany({
+      where: { user_id: userId },
+      select: {
+        data: true,
+        created_at: true,
+        updated_at: true,
+        workspace: { select: { slug: true } },
+        project: { select: { identifier: true } },
+      },
+      orderBy: { updated_at: 'desc' },
+    }),
   ]);
 
   return {
     format: DATA_EXPORT_FORMAT,
     exported_at: new Date(),
     about:
-      'Ваши данные в системе поручений: профиль, способы входа и сеансы, пространства, ваша работа, уведомления, диалоги с AI, сохранённые виды и ваши записи в журнале аудита. Задачи названы ключом и заголовком; тексты других людей сюда не входят; файлы перечислены без содержимого. Что и зачем хранится — docs/PRIVACY.md.',
+      'Ваши данные в системе поручений: профиль, способы входа и сеансы, пространства, ваша работа, уведомления, диалоги с AI, сохранённые виды, черновики задач и ваши записи в журнале аудита. Задачи названы ключом и заголовком; тексты других людей сюда не входят; файлы перечислены без содержимого. Что и зачем хранится — docs/PRIVACY.md.',
     profile: user,
     sign_in_methods: identities,
     sessions,
@@ -319,6 +332,13 @@ export async function exportMyData(prisma: PrismaClient, userId: string) {
       display: v.display,
       shared: v.is_shared,
       created_at: v.created_at,
+    })),
+    issue_drafts: drafts.map((d) => ({
+      workspace: d.workspace.slug,
+      project: d.project?.identifier ?? null,
+      data: d.data,
+      created_at: d.created_at,
+      updated_at: d.updated_at,
     })),
     audit_log: audit,
   };

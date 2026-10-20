@@ -260,6 +260,13 @@ describe('code-confirmed account deletion', () => {
         .send({ name: shared ? 'Общий вид' : 'Мой вид', is_shared: shared });
     const personalView = (await views(false)).body.id as string;
     const sharedView = (await views(true)).body.id as string;
+    // A draft of a new issue is the person's unsent text (7.B5).
+    const draft = (
+      await request(app.server)
+        .post(`/api/v1/workspaces/${ws.slug}/drafts`)
+        .set('Authorization', `Bearer ${owner.token}`)
+        .send({ data: { title: 'Недописанное' } })
+    ).body.id as string;
 
     const reqRes = await request(app.server)
       .post('/api/v1/auth/account/delete/request')
@@ -290,6 +297,7 @@ describe('code-confirmed account deletion', () => {
 
     expect(await app.prisma.savedView.findUnique({ where: { id: personalView } })).toBeNull();
     expect(await app.prisma.savedView.findUnique({ where: { id: sharedView } })).not.toBeNull();
+    expect(await app.prisma.issueDraft.findUnique({ where: { id: draft } })).toBeNull();
   });
 
   it('deletes a solely-owned workspace with no other members on deletion', async () => {
