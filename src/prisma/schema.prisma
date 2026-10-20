@@ -583,6 +583,8 @@ model Issue {
   // Full-text search (7.B2) uses the expression GIN index "Issue_search_idx" on
   // to_tsvector('russian', title || ' ' || coalesce(description, '')), created by
   // migration `search` — Prisma cannot describe it; keep it out of DROP INDEX diffs.
+  // The title substring match has the trigram index "Issue_title_trgm_idx" on
+  // translate(title, 'Ёё', 'Ее') (pg_trgm, migration `search_trgm`, 7.B7), same rule.
 }
 
 model IssueAssignee {
