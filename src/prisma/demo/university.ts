@@ -2114,7 +2114,8 @@ export async function seedDemo(
         due_in_days: opts.dueInDays,
         ...schedule,
         next_run_at: nextRunAfter(schedule, TZ, new Date(NOW)),
-        created_at: cap(at(-opts.startDaysAgo - 2, 15)),
+        // Not before the workspace itself (90 days ago).
+        created_at: cap(at(-Math.min(opts.startDaysAgo + 2, 88), 15)),
       },
     });
     // Every run so far, as the scheduler made it.
@@ -2228,7 +2229,7 @@ export async function seedDemo(
       by_month: null,
       time: '09:00',
     },
-    startDaysAgo: 80,
+    startDaysAgo: 100,
   });
   await recurring({
     project: 'adm',
