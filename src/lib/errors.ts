@@ -61,7 +61,8 @@ export type ErrorCode =
   | 'AI_BAD_OUTPUT'
   | 'AI_INPUT_TOO_LARGE'
   | 'AI_FILE_UNSUPPORTED'
-  | 'PROJECT_IN_TRASH';
+  | 'PROJECT_IN_TRASH'
+  | 'ACTIVITY_FORBIDDEN';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -133,6 +134,7 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
     'The file must be a .txt, .docx or .pdf up to 10 MB with readable text (details.file_name)',
   PROJECT_IN_TRASH:
     'The issue is in a project that is itself in the trash — restore the project first',
+  ACTIVITY_FORBIDDEN: 'The workspace feed is for admins and department heads',
 };
 
 /**

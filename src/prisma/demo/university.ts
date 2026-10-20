@@ -1375,7 +1375,15 @@ export async function seedDemo(
           },
         });
         deadlineAsked = true;
-        activity.push({ action: 'issue.deadline_requested', actor: assignee, when: requestedAt });
+        activity.push({
+          action: 'issue.deadline_requested',
+          actor: assignee,
+          when: requestedAt,
+          // As the service records it: the deadline asked for, from which date.
+          field: 'due_date',
+          old_value: request.old_due_date?.toISOString() ?? null,
+          new_value: request.new_due_date.toISOString(),
+        });
         activity.push({
           action: approved ? 'issue.deadline_approved' : 'issue.deadline_rejected',
           actor: reviewer,
@@ -1520,7 +1528,15 @@ export async function seedDemo(
             created_at: requestedAt,
           },
         });
-        activity.push({ action: 'issue.deadline_requested', actor: assignee, when: requestedAt });
+        activity.push({
+          action: 'issue.deadline_requested',
+          actor: assignee,
+          when: requestedAt,
+          // As the service records it: the deadline asked for, from which date.
+          field: 'due_date',
+          old_value: request.old_due_date?.toISOString() ?? null,
+          new_value: request.new_due_date.toISOString(),
+        });
         notify('deadline_change_requested', assignee, [reviewer], issue.id, requestedAt, {
           entity: request.id,
         });
@@ -1775,7 +1791,15 @@ export async function seedDemo(
             created_at: requestedAt,
           },
         });
-        activity.push({ action: 'issue.deadline_requested', actor: head.key, when: requestedAt });
+        activity.push({
+          action: 'issue.deadline_requested',
+          actor: head.key,
+          when: requestedAt,
+          // As the service records it: the deadline asked for, from which date.
+          field: 'due_date',
+          old_value: request.old_due_date?.toISOString() ?? null,
+          new_value: request.new_due_date.toISOString(),
+        });
         notify('deadline_change_requested', head.key, [opts.controller], child.id, requestedAt, {
           entity: request.id,
         });

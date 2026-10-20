@@ -39,6 +39,7 @@ import { cycleRoutes } from './modules/cycles/routes.js';
 import { moduleRoutes } from './modules/modules/routes.js';
 import { issueRelationRoutes, projectRelationRoutes } from './modules/issues/relations/routes.js';
 import { activityRoutes } from './modules/activity/routes.js';
+import { workspaceActivityRoutes } from './modules/activity/feed-routes.js';
 import { attachmentRoutes, attachmentDeleteRoutes } from './modules/attachments/routes.js';
 import { notificationRoutes } from './modules/notifications/routes.js';
 import { inviteRoutes } from './modules/invites/routes.js';
@@ -232,6 +233,10 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(analyticsRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug' });
   await app.register(activityRoutes, {
     prefix: '/api/v1/workspaces/:workspaceSlug/projects/:projectId/issues/:issueId/activity',
+  });
+  // Workspace feed for admins and department heads (7.B3).
+  await app.register(workspaceActivityRoutes, {
+    prefix: '/api/v1/workspaces/:workspaceSlug/activity',
   });
   await app.register(attachmentRoutes, {
     prefix: '/api/v1/workspaces/:workspaceSlug/projects/:projectId/issues/:issueId/attachments',

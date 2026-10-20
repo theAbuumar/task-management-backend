@@ -732,6 +732,8 @@ model ActivityLog {
   actor     User      @relation("ActivityActor", fields: [actor_id], references: [id])
 
   @@index([workspace_id])
+  // The workspace feed (7.B3) reads the newest rows of a workspace.
+  @@index([workspace_id, created_at])
   @@index([issue_id])
   @@index([actor_id])
 }

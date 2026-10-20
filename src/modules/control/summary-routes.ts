@@ -19,7 +19,8 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
           'COUNT-only summary for the sidebar and «Мои задачи». Open = state group backlog/unstarted/started/review. ' +
           'Deadline days are computed in the workspace time zone. `control` — open assignments where I am the controller ' +
           '(or the author when there is none); `review_pending` — issues in a review state that I decide on. ' +
-          "Private projects the caller cannot see are not counted. `role` is the caller's access role in the workspace.",
+          "Private projects the caller cannot see are not counted. `role` is the caller's access role in the workspace; " +
+          '`heads_department` — the caller heads a department (the workspace feed is open to them).',
         security: [{ bearerAuth: [] }],
         params: { type: 'object', properties: { workspaceSlug: { type: 'string' } } },
         response: {
@@ -36,6 +37,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
               review_pending: counter,
               watching: counter,
               unread_notifications: counter,
+              heads_department: { type: 'boolean' },
             },
           },
         },

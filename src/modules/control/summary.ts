@@ -10,7 +10,8 @@
 //   - review_pending — issues in a `review` state that I decide on (reviewersOf);
 //   - watching — open issues I follow (5.B7);
 //   - unread_notifications — my unread inbox in this workspace;
-//   - role — my access role, so the client can hide what a guest cannot do.
+//   - role — my access role, so the client can hide what a guest cannot do;
+//   - heads_department — I head a department, so the workspace feed (7.B3) is mine too.
 // Private projects I cannot see and deleted projects/issues are never counted.
 
 import type { Prisma, PrismaClient, WorkspaceMember, WorkspaceRole } from '@prisma/client';
@@ -30,6 +31,7 @@ export interface MySummary {
   review_pending: number;
   watching: number;
   unread_notifications: number;
+  heads_department: boolean;
 }
 
 export async function mySummary(
@@ -73,6 +75,7 @@ export async function mySummary(
     reviewPending,
     watching,
     unread,
+    headed,
   ] = await Promise.all([
     count(assigned),
     count({ ...assigned, ...overdue }),
@@ -89,6 +92,7 @@ export async function mySummary(
     prisma.notification.count({
       where: { workspace_id: workspace.id, recipient_id: me, is_read: false },
     }),
+    prisma.department.count({ where: { workspace_id: workspace.id, head_id: me } }),
   ]);
 
   return {
@@ -102,5 +106,6 @@ export async function mySummary(
     review_pending: reviewPending,
     watching,
     unread_notifications: unread,
+    heads_department: headed > 0,
   };
 }

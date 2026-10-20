@@ -241,7 +241,9 @@ async function loadWorkspaceData(
 
 // ─── Scope and filters ────────────────────────────────────────────────────────
 
-export function treeIndex(departments: DepartmentInfo[]): Map<string, string[]> {
+export function treeIndex(
+  departments: Pick<DepartmentInfo, 'id' | 'parent_id'>[],
+): Map<string, string[]> {
   const childrenOf = new Map<string, string[]>();
   for (const d of departments) {
     if (d.parent_id) childrenOf.set(d.parent_id, [...(childrenOf.get(d.parent_id) ?? []), d.id]);

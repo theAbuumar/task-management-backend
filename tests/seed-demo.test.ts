@@ -126,6 +126,17 @@ describe('demo seed (13.B1)', () => {
     }
   });
 
+  it('a deadline request in the history says which date was asked for, as the service records it', async () => {
+    const rows = await prisma.activityLog.findMany({
+      where: { workspace_id: seeded.workspaceId, action: 'issue.deadline_requested' },
+    });
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.field).toBe('due_date');
+      expect(row.new_value).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    }
+  });
+
   it('every attachment opens: real PDF and Excel files, report files tied to their hand-in', async () => {
     const files = await prisma.attachment.findMany({
       where: { workspace_id: seeded.workspaceId },
