@@ -192,14 +192,59 @@ const pathOf = (node: DeptNode): string => {
   return parts.join(' / ');
 };
 
+const matches = (node: DeptNode, key: string) =>
+  normalize(node.name) === key || (node.short_name !== null && normalize(node.short_name) === key);
+
+const depthOf = (node: DeptNode) => {
+  let depth = 0;
+  for (let n = node.parent; n; n = n.parent) depth++;
+  return depth;
+};
+
+/**
+ * Where a written path starts. People write «Факультет / Кафедра» without the
+ * levels above it (Ректорат → Проректорат), so the first part is looked for in the
+ * whole tree: the department from which most of the path already exists, the
+ * highest one on a tie. A path written from the top, or one whose first part is
+ * nowhere, starts at the top.
+ */
+function anchorOf(root: DeptNode, path: string[]): { node: DeptNode; used: number } {
+  const first = normalize(path[0]!);
+  if (root.children.some((c) => matches(c, first))) return { node: root, used: 0 };
+  const candidates: DeptNode[] = [];
+  const walk = (n: DeptNode) => {
+    for (const c of n.children) {
+      if (matches(c, first)) candidates.push(c);
+      walk(c);
+    }
+  };
+  walk(root);
+  let best: { node: DeptNode; reach: number; depth: number } | null = null;
+  for (const c of candidates) {
+    let node = c;
+    let reach = 1;
+    for (const part of path.slice(1)) {
+      const next = node.children.find((ch) => matches(ch, normalize(part)));
+      if (!next) break;
+      node = next;
+      reach++;
+    }
+    const depth = depthOf(c);
+    if (!best || reach > best.reach || (reach === best.reach && depth < best.depth)) {
+      best = { node: c, reach, depth };
+    }
+  }
+  return best ? { node: best.node, used: 1 } : { node: root, used: 0 };
+}
+
 /** Walk a path by name or short name; missing parts become new nodes (id null). */
 function resolvePath(root: DeptNode, path: string[], created: DeptNode[]): DeptNode | null {
-  let node = root;
-  for (const part of path) {
+  if (path.length === 0) return null;
+  const anchor = anchorOf(root, path);
+  let node = anchor.node;
+  for (const part of path.slice(anchor.used)) {
     const key = normalize(part);
-    let next = node.children.find(
-      (c) => normalize(c.name) === key || (c.short_name && normalize(c.short_name) === key),
-    );
+    let next = node.children.find((c) => matches(c, key));
     if (!next) {
       next = {
         id: null,
@@ -281,7 +326,10 @@ export async function importMembers(
   for (const r of rows) {
     if (r.status === 'error') continue;
     const missing: DeptNode[] = [];
-    for (let n = target.get(r.row) ?? null; n && n.id === null; n = n.parent) missing.unshift(n);
+    // Up to the tree's invisible root (no parent), which is never created.
+    for (let n = target.get(r.row) ?? null; n?.parent && n.id === null; n = n.parent) {
+      missing.unshift(n);
+    }
     missing.forEach((n) => needed.add(n));
     r.new_departments = missing.map(pathOf);
   }

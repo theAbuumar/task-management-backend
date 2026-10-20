@@ -369,3 +369,49 @@ describe('«Добавить сразу» (POST WS/members by email)', () => {
     expect((await as(member).post(api('/members'), { email: emails.known })).status).toBe(403);
   });
 });
+
+describe('paths in a nested org structure', () => {
+  it('finds «Факультет / Кафедра» below the levels above it instead of making a copy', async () => {
+    const make = async (name: string, parent_id?: string) =>
+      (await as(admin).post(api('/departments'), { name, ...(parent_id && { parent_id }) })).body
+        .id as string;
+    const top = await make('Аппарат');
+    const vice = await make('Проректорат по учёбе', top);
+    const faculty = await make('Филфак', vice);
+    await make('Кафедра лингвистики', faculty);
+
+    const res = await importRows([
+      {
+        full_name: 'Лингвистова Ольга',
+        email: mail('n1'),
+        department: 'Филфак / Кафедра лингвистики',
+      },
+      { full_name: 'Историков Олег', email: mail('n2'), department: 'Филфак / Кафедра истории' },
+      {
+        full_name: 'Сверхов Иван',
+        email: mail('n3'),
+        department: 'Аппарат / Проректорат по учёбе / Филфак',
+      },
+      {
+        full_name: 'Новаков Пётр',
+        email: mail('n4'),
+        department: 'Институт права / Кафедра права',
+      },
+    ]);
+    expect(res.status).toBe(200);
+    const byEmail = (who: string) => res.body.rows.find((r: Row) => r.email === mail(who)) as Row;
+    // The existing chair, reached from the faculty without the levels above.
+    expect(byEmail('n1').new_departments).toEqual([]);
+    // A new chair goes under the existing faculty, not under a new copy of it.
+    expect(byEmail('n2').new_departments).toEqual([
+      'Аппарат / Проректорат по учёбе / Филфак / Кафедра истории',
+    ]);
+    // Written from the top, as before.
+    expect(byEmail('n3').new_departments).toEqual([]);
+    // Nowhere in the tree: created from the top.
+    expect(byEmail('n4').new_departments).toEqual([
+      'Институт права',
+      'Институт права / Кафедра права',
+    ]);
+  });
+});
