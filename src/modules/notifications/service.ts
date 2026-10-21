@@ -29,32 +29,85 @@ const INCLUDE_ACTOR = {
 } satisfies Prisma.NotificationInclude;
 
 type NotificationRow = Prisma.NotificationGetPayload<{ include: typeof INCLUDE_ACTOR }>;
-type NotificationWithActor = NotificationRow & {
-  details?: { approved: boolean; new_due_date: Date } | null;
+type DeadlineDetails = { approved: boolean; new_due_date: Date };
+/** A planned report's sending (10.B5): what to name and what to download. */
+type ReportDetails = {
+  run_id: string;
+  schedule_id: string;
+  report: string;
+  name: string | null;
+  period_from: string;
+  period_to: string;
+  file_name: string | null;
 };
+type NotificationWithActor = NotificationRow & {
+  details?: DeadlineDetails | ReportDetails | null;
+};
+
+const entityIds = (rows: NotificationRow[], type: NotificationRow['type']) =>
+  rows.filter((n) => n.type === type && n.entity_id).map((n) => n.entity_id as string);
 
 /**
  * deadline_change_decided rows point at the request (entity_id); attach its
  * outcome so the client can say "одобрил" or "отклонил" and show the new date.
+ * report_ready rows point at the sending of a planned report: its document and
+ * period (null once the sending is gone from the history).
  */
 async function withDetails(
   prisma: PrismaClient,
   rows: NotificationRow[],
 ): Promise<NotificationWithActor[]> {
-  const ids = rows
-    .filter((n) => n.type === 'deadline_change_decided' && n.entity_id)
-    .map((n) => n.entity_id as string);
-  if (ids.length === 0) return rows;
-  const requests = await prisma.deadlineChangeRequest.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, status: true, new_due_date: true },
-  });
-  const byId = new Map(requests.map((r) => [r.id, r]));
+  const deadlineIds = entityIds(rows, 'deadline_change_decided');
+  const runIds = entityIds(rows, 'report_ready');
+  if (deadlineIds.length === 0 && runIds.length === 0) return rows;
+  const [requests, runs] = await Promise.all([
+    deadlineIds.length === 0
+      ? []
+      : prisma.deadlineChangeRequest.findMany({
+          where: { id: { in: deadlineIds } },
+          select: { id: true, status: true, new_due_date: true },
+        }),
+    runIds.length === 0
+      ? []
+      : prisma.reportRun.findMany({
+          where: { id: { in: runIds } },
+          select: {
+            id: true,
+            schedule_id: true,
+            period_from: true,
+            period_to: true,
+            file_name: true,
+            schedule: { select: { report: true, name: true } },
+          },
+        }),
+  ]);
+  const requestOf = new Map(requests.map((r) => [r.id, r]));
+  const runOf = new Map(runs.map((r) => [r.id, r]));
   return rows.map((n) => {
-    const r = n.entity_id ? byId.get(n.entity_id) : undefined;
-    return r && n.type === 'deadline_change_decided'
-      ? { ...n, details: { approved: r.status === 'approved', new_due_date: r.new_due_date } }
-      : n;
+    if (n.type === 'deadline_change_decided') {
+      const r = n.entity_id ? requestOf.get(n.entity_id) : undefined;
+      return r
+        ? { ...n, details: { approved: r.status === 'approved', new_due_date: r.new_due_date } }
+        : n;
+    }
+    if (n.type === 'report_ready') {
+      const r = n.entity_id ? runOf.get(n.entity_id) : undefined;
+      return {
+        ...n,
+        details: r
+          ? {
+              run_id: r.id,
+              schedule_id: r.schedule_id,
+              report: r.schedule.report,
+              name: r.schedule.name,
+              period_from: r.period_from,
+              period_to: r.period_to,
+              file_name: r.file_name,
+            }
+          : null,
+      };
+    }
+    return n;
   });
 }
 

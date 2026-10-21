@@ -2,6 +2,7 @@ import type { PrismaClient, Cycle } from '@prisma/client';
 import { AppError } from '../../lib/errors.js';
 import { recordActivities, ACTIVITY_ACTIONS } from '../../lib/activity.js';
 import { cycleProgress, emptyProgress, type GroupProgress } from '../../lib/progress.js';
+import { loadBurndown, type Burndown } from '../../lib/burndown.js';
 import { localDate } from '../../lib/tz.js';
 import type { CreateCycleBody, UpdateCycleBody } from './schema.js';
 
@@ -127,6 +128,31 @@ export async function getCycle(
 ): Promise<CycleView> {
   const cycle = await resolveCycle(prisma, workspaceId, projectId, cycleId);
   return (await views(prisma, workspaceId, [cycle]))[0]!;
+}
+
+/** Burndown and burnup of the cycle by day (10.B7, ADR-032). */
+export async function cycleBurndown(
+  prisma: PrismaClient,
+  workspaceId: string,
+  projectId: string,
+  cycleId: string,
+  now = new Date(),
+): Promise<Burndown> {
+  const cycle = await resolveCycle(prisma, workspaceId, projectId, cycleId);
+  return loadBurndown(
+    prisma,
+    {
+      kind: 'cycle',
+      id: cycle.id,
+      name: cycle.name,
+      project_id: projectId,
+      workspace_id: workspaceId,
+      start: cycle.start_date,
+      end: cycle.end_date,
+      created_at: cycle.created_at,
+    },
+    now,
+  );
 }
 
 export async function updateCycle(

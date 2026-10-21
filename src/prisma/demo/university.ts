@@ -25,6 +25,7 @@
 // in the table, tied to ids that no longer exist — no workspace shows them.
 // Demo accounts sign in through the DEMO_MODE quick login (auth/demo-routes.ts).
 
+import { randomUUID } from 'node:crypto';
 import type {
   IssuePriority,
   NotificationType,
@@ -41,6 +42,14 @@ import {
   type Schedule,
 } from '../../modules/recurring/schedule.js';
 import { PDF_MIME, XLSX_MIME, minutesPdf, reportPdf, summaryXlsx } from './files.js';
+import {
+  buildReport,
+  nextRun,
+  quarterStart,
+  reportPeriod,
+  reportStorageKey,
+  type Delivery,
+} from '../../modules/report-schedules/run.js';
 
 const SLUG = 'demo-university';
 const DOMAIN = '@demo.local';
@@ -772,6 +781,11 @@ async function reset(): Promise<void> {
     select: { storage_key: true },
   });
   for (const f of files) await storage.delete(f.storage_key).catch(() => undefined);
+  const reports = await prisma.reportRun.findMany({
+    where: { workspace: { slug: SLUG }, storage_key: { not: null } },
+    select: { storage_key: true },
+  });
+  for (const r of reports) await storage.delete(r.storage_key!).catch(() => undefined);
 
   const users = await prisma.user.findMany({
     where: { email: { endsWith: DOMAIN } },
@@ -2795,19 +2809,24 @@ export async function seedDemo(
   // Reports for the rector's Monday meetings, the registry for the vice-rector.
   const weekday = new Date(`${today}T12:00:00Z`).getUTCDay();
   const monday = addDays(today, -((weekday + 6) % 7));
+  // The rector downloaded the справка by hand until the planned report took over
+  // (the last PLANNED_WEEKS Mondays, below).
+  const PLANNED_WEEKS = 4;
   for (let w = 0; w < 8; w++) {
     const date = addDays(monday, -7 * w);
     const range = { from: addDays(date, -7), to: addDays(date, -1) };
-    audited(
-      'rector',
-      'report.exported',
-      onDay(date, 8, between(30, 55)),
-      { type: 'report', id: 'discipline.pdf' },
-      {
-        report: 'discipline.pdf',
-        ...range,
-      },
-    );
+    if (w >= PLANNED_WEEKS) {
+      audited(
+        'rector',
+        'report.exported',
+        onDay(date, 8, between(30, 55)),
+        { type: 'report', id: 'discipline.pdf' },
+        {
+          report: 'discipline.pdf',
+          ...range,
+        },
+      );
+    }
     if (w % 2 === 0) {
       audited(
         'pr_edu',
@@ -2822,6 +2841,198 @@ export async function seedDemo(
       );
     }
   }
+
+  // ─── Planned reports (10.B5, ADR-032) ───
+  // The справка now comes by itself: every Monday at 08:00 to the rector and the
+  // vice-rector for studies (Telegram and email); the vice-rector gets the реестр
+  // of his area on the 1st by email, the dean of ФЭУ the faculty's справка on
+  // Mondays in Telegram. Each sending is the real document, built with its
+  // author's rights as of that morning and stored with the history — the same
+  // path as the scheduler (modules/report-schedules/run.ts), without messaging
+  // anyone now.
+  const wsRef = { id: wsId, name: WS_NAME, short_name: 'ГУ', timezone: TZ };
+  const reportNotes: Prisma.NotificationCreateManyInput[] = [];
+  const mondays = (n: number, hour: number, minute: number) =>
+    Array.from({ length: n }, (_, w) => onDay(addDays(monday, -7 * w), hour, minute)).reverse();
+  const firstOfMonth = (back: number) => {
+    const d = new Date(`${today.slice(0, 7)}-01T12:00:00Z`);
+    d.setUTCMonth(d.getUTCMonth() - back);
+    return d.toISOString().slice(0, 10);
+  };
+  const plans: {
+    author: string;
+    name: string | null;
+    report: 'discipline' | 'assignments';
+    period: 'previous_week' | 'previous_month';
+    frequency: 'weekly' | 'monthly';
+    by_weekday: number[];
+    by_monthday: number | null;
+    time: string;
+    filters: { department?: string[]; kind?: 'assignment' };
+    recipients: string[];
+    channels: ('telegram' | 'email')[];
+    created: Date;
+    sends: Date[];
+  }[] = [
+    {
+      author: 'rector',
+      name: 'Справка ректору к планёрке',
+      report: 'discipline',
+      period: 'previous_week',
+      frequency: 'weekly',
+      by_weekday: [1],
+      by_monthday: null,
+      time: '08:00',
+      filters: {},
+      recipients: ['rector', 'pr_edu'],
+      channels: ['telegram', 'email'],
+      created: onDay(addDays(monday, -7 * PLANNED_WEEKS + 4), 16, 40),
+      sends: mondays(PLANNED_WEEKS, 8, 0),
+    },
+    {
+      author: 'pr_edu',
+      name: null,
+      report: 'assignments',
+      period: 'previous_month',
+      frequency: 'monthly',
+      by_weekday: [],
+      by_monthday: 1,
+      time: '09:00',
+      filters: { department: [deptId.get('edu')!], kind: 'assignment' },
+      recipients: ['pr_edu'],
+      channels: ['email'],
+      created: onDay(addDays(firstOfMonth(1), -3), 11, 20),
+      sends: [onDay(firstOfMonth(1), 9, 0), onDay(firstOfMonth(0), 9, 0)],
+    },
+    {
+      author: 'dean_econ',
+      name: 'Справка по факультету',
+      report: 'discipline',
+      period: 'previous_week',
+      frequency: 'weekly',
+      by_weekday: [1],
+      by_monthday: null,
+      time: '08:30',
+      filters: { department: [deptId.get('econ')!] },
+      recipients: ['dean_econ'],
+      channels: ['telegram'],
+      created: onDay(addDays(monday, -10), 15, 10),
+      sends: mondays(2, 8, 30),
+    },
+  ];
+  for (const plan of plans) {
+    const sends = plan.sends.filter((t) => t.getTime() < NOW && t > plan.created);
+    const timing = {
+      frequency: plan.frequency,
+      by_weekday: plan.by_weekday,
+      by_monthday: plan.by_monthday,
+      time: plan.time,
+      start_date: quarterStart(today),
+    };
+    const schedule = await prisma.reportSchedule.create({
+      data: {
+        workspace_id: wsId,
+        created_by_id: uid(plan.author),
+        name: plan.name,
+        report: plan.report,
+        filters: plan.filters,
+        period: plan.period,
+        ...timing,
+        recipient_ids: plan.recipients.map(uid),
+        channels: plan.channels,
+        next_run_at: nextRun(timing, TZ, new Date(NOW)),
+        last_run_at: sends.at(-1) ?? null,
+        created_at: plan.created,
+        updated_at: plan.created,
+      },
+    });
+    audited(
+      plan.author,
+      'report_schedule.created',
+      plan.created,
+      { type: 'report', id: schedule.id },
+      plan.name ? { name: plan.name } : null,
+    );
+    const author = await prisma.workspaceMember.findUniqueOrThrow({
+      where: { workspace_id_user_id: { workspace_id: wsId, user_id: uid(plan.author) } },
+    });
+    for (const sentAt of sends) {
+      const period = reportPeriod(plan.period, day(sentAt));
+      const built = await buildReport(prisma, wsRef, author, schedule, period, sentAt);
+      const runId = randomUUID();
+      const key = reportStorageKey(wsId, runId, built.mimeType);
+      await storage.put(key, built.data, built.mimeType);
+      const deliveries: Delivery[] = plan.recipients.flatMap((r) =>
+        plan.channels.map((channel): Delivery => {
+          const reachable = channel === 'email' || (telegram === 'linked' && telegramKey === r);
+          return reachable
+            ? { user_id: uid(r), channel, status: 'sent' }
+            : { user_id: uid(r), channel, status: 'skipped', error: 'NO_TELEGRAM' };
+        }),
+      );
+      await prisma.reportRun.create({
+        data: {
+          id: runId,
+          workspace_id: wsId,
+          schedule_id: schedule.id,
+          period_from: period.from,
+          period_to: period.to,
+          status: 'sent',
+          file_name: built.fileName,
+          mime_type: built.mimeType,
+          file_size: built.data.length,
+          storage_key: key,
+          summary: built.summary as unknown as Prisma.InputJsonValue,
+          recipient_ids: plan.recipients.map(uid),
+          deliveries: deliveries as unknown as Prisma.InputJsonValue,
+          created_at: sentAt,
+        },
+      });
+      const unread = NOW - sentAt.getTime() < UNREAD_WINDOW;
+      for (const r of plan.recipients) {
+        reportNotes.push({
+          workspace_id: wsId,
+          recipient_id: uid(r),
+          actor_id: uid(plan.author),
+          type: 'report_ready',
+          entity_id: runId,
+          is_read: !unread,
+          read_at: unread ? null : new Date(sentAt.getTime() + 40 * 60_000),
+          created_at: sentAt,
+        });
+      }
+      // The scheduler's own entry: no person sent it.
+      audit.push({
+        workspace_id: wsId,
+        actor_id: null,
+        actor_name: null,
+        action: 'report.sent',
+        target_type: 'report',
+        target_id: schedule.id,
+        meta: {
+          report: plan.report,
+          name: plan.name,
+          from: period.from,
+          to: period.to,
+          recipients: plan.recipients.length,
+          status: 'sent',
+          manual: false,
+        },
+        created_at: sentAt,
+      });
+      // The rector opens the file before the meeting.
+      if (plan.author === 'rector') {
+        audited(
+          'rector',
+          'report.exported',
+          new Date(sentAt.getTime() + 52 * 60_000),
+          { type: 'report', id: schedule.id },
+          { report: plan.report, from: period.from, to: period.to, run_id: runId, planned: true },
+        );
+      }
+    }
+  }
+  await prisma.notification.createMany({ data: reportNotes });
 
   // Sign-ins over the last month: sessions last 30 days, so a few a week per person.
   for (let d = -30; d <= 0; d++) {
@@ -2944,7 +3155,7 @@ export async function seedDemo(
     projects: PROJECTS.length,
     issues: issueCount,
     attachments: attachmentCount,
-    notifications: notifications.length,
+    notifications: notifications.length + reportNotes.length,
     audit: audit.length,
     sessions: sessions.length,
     telegram,

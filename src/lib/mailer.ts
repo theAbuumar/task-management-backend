@@ -12,11 +12,19 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 import { config } from '../config/index.js';
 
+export interface MailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+
 export interface MailMessage {
   to: string;
   subject: string;
   text: string;
   html?: string;
+  /** Files sent with the letter (planned reports, 10.B5). */
+  attachments?: MailAttachment[];
 }
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
@@ -47,6 +55,15 @@ async function sendViaResend(apiKey: string, message: MailMessage): Promise<void
       subject: message.subject,
       text: message.text,
       ...(message.html ? { html: message.html } : {}),
+      ...(message.attachments?.length
+        ? {
+            attachments: message.attachments.map((a) => ({
+              filename: a.filename,
+              content: a.content.toString('base64'),
+              ...(a.contentType ? { content_type: a.contentType } : {}),
+            })),
+          }
+        : {}),
     }),
   });
   if (!res.ok) {
@@ -81,6 +98,9 @@ function logStub(message: MailMessage): void {
       `│ Subject: ${message.subject}`,
       '│',
       ...message.text.split('\n').map((line) => `│ ${line}`),
+      ...(message.attachments ?? []).map(
+        (a) => `│ 📎 ${a.filename} (${Math.ceil(a.content.length / 1024)} КБ)`,
+      ),
       '└─────────────────────────────────────────────────────────────',
       '',
     ].join('\n'),
@@ -128,5 +148,6 @@ export async function sendMail(message: MailMessage): Promise<void> {
     subject: message.subject,
     text: message.text,
     ...(message.html ? { html: message.html } : {}),
+    ...(message.attachments?.length ? { attachments: message.attachments } : {}),
   });
 }

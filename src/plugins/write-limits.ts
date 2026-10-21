@@ -27,7 +27,13 @@ type Kind = 'write' | 'export' | 'search';
 /** Which budget a route spends, if any. */
 export function limitKind(method: string, url: string): Kind | null {
   if (!url.startsWith('/api/v1/workspaces')) return null;
-  if (/\/reports\/|\/report\.pdf$|\/ai\/report\/export$/.test(url)) return 'export';
+  // Downloads and makings of reports, planned ones included (10.B5).
+  if (
+    /\/reports\/|\/report\.pdf$|\/ai\/report\/export$|\/report-schedules\/[^/]+\/run$|\/report-runs\/[^/]+\/download$/.test(
+      url,
+    )
+  )
+    return 'export';
   if (method === 'GET' && /\/search\/?$/.test(url)) return 'search';
   return WRITE_METHODS.has(method) ? 'write' : null;
 }

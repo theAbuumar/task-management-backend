@@ -169,6 +169,29 @@ export async function sendBotMessage(
   });
 }
 
+/**
+ * Send a file as a document with an optional caption (HTML) and buttons — the
+ * planned reports (10.B5). A multipart upload: the Bot API takes up to 50 MB.
+ */
+export async function sendBotDocument(
+  chatId: number,
+  file: { name: string; data: Buffer; mimeType: string },
+  opts: BotMessageOptions & { caption?: string } = {},
+): Promise<void> {
+  const { botToken } = requireTelegramConfig();
+  const form = new FormData();
+  form.set('chat_id', String(chatId));
+  form.set('document', new Blob([new Uint8Array(file.data)], { type: file.mimeType }), file.name);
+  if (opts.caption) form.set('caption', opts.caption);
+  if (opts.parse_mode) form.set('parse_mode', opts.parse_mode);
+  if (opts.reply_markup) form.set('reply_markup', JSON.stringify(opts.reply_markup));
+  const res = await fetch(`${TELEGRAM_API_BASE}/bot${botToken}/sendDocument`, {
+    method: 'POST',
+    body: form,
+  });
+  if (!res.ok) throw AppError.badRequest('Telegram sendDocument failed');
+}
+
 /** Replace the text (and buttons) of a message the bot sent earlier. */
 export async function editBotMessage(
   chatId: number,

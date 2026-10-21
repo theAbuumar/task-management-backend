@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { FastifySchema } from 'fastify';
+import { BURNDOWN_DESCRIPTION, BURNDOWN_SHAPE } from '../../lib/burndown.js';
 
 export const CreateCycleBodySchema = z.object({
   name: z.string().min(1).max(255),
@@ -209,4 +210,21 @@ export const removeIssueFromCycleSchema: FastifySchema = {
     },
   },
   response: { 204: { type: 'null' } },
+};
+
+export const cycleBurndownSchema: FastifySchema = {
+  tags,
+  summary: 'Burndown and burnup of a cycle (график сгорания этапа)',
+  description: BURNDOWN_DESCRIPTION,
+  security,
+  params: {
+    type: 'object',
+    required: ['workspaceSlug', 'projectId', 'cycleId'],
+    properties: {
+      workspaceSlug: { type: 'string' },
+      projectId: { type: 'string' },
+      cycleId: { type: 'string' },
+    },
+  },
+  response: { 200: BURNDOWN_SHAPE },
 };

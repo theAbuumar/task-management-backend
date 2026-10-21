@@ -2,6 +2,7 @@ import type { PrismaClient, Module } from '@prisma/client';
 import { AppError } from '../../lib/errors.js';
 import { recordActivities, ACTIVITY_ACTIONS } from '../../lib/activity.js';
 import { moduleProgress, emptyProgress, type GroupProgress } from '../../lib/progress.js';
+import { loadBurndown, type Burndown } from '../../lib/burndown.js';
 import { assertAssignable } from '../issues/service.js';
 import type { CreateModuleBody, UpdateModuleBody } from './schema.js';
 
@@ -130,6 +131,31 @@ export async function updateModule(
     },
   });
   return (await views(prisma, [updated]))[0]!;
+}
+
+/** Burndown and burnup of the module, from its start to its target date (10.B7, ADR-032). */
+export async function moduleBurndown(
+  prisma: PrismaClient,
+  workspaceId: string,
+  projectId: string,
+  moduleId: string,
+  now = new Date(),
+): Promise<Burndown> {
+  const mod = await resolveModule(prisma, workspaceId, projectId, moduleId);
+  return loadBurndown(
+    prisma,
+    {
+      kind: 'module',
+      id: mod.id,
+      name: mod.name,
+      project_id: projectId,
+      workspace_id: workspaceId,
+      start: mod.start_date,
+      end: mod.target_date,
+      created_at: mod.created_at,
+    },
+    now,
+  );
 }
 
 /** Delete a module (admin+, by route); its issues stay where they are. */

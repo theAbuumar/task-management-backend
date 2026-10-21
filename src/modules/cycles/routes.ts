@@ -9,6 +9,7 @@ import {
   deleteCycleSchema,
   addIssuesToCycleSchema,
   removeIssueFromCycleSchema,
+  cycleBurndownSchema,
 } from './schema.js';
 import {
   listCyclesHandler,
@@ -18,6 +19,7 @@ import {
   deleteCycleHandler,
   addIssuesToCycleHandler,
   removeIssueFromCycleHandler,
+  cycleBurndownHandler,
 } from './controller.js';
 
 export async function cycleRoutes(app: FastifyInstance): Promise<void> {
@@ -29,6 +31,11 @@ export async function cycleRoutes(app: FastifyInstance): Promise<void> {
   app.post('/', { schema: createCycleSchema, preHandler: member }, createCycleHandler);
 
   app.get('/:cycleId', { schema: getCycleSchema, preHandler: member }, getCycleHandler);
+  app.get(
+    '/:cycleId/burndown',
+    { schema: cycleBurndownSchema, preHandler: member },
+    cycleBurndownHandler,
+  );
   app.patch('/:cycleId', { schema: updateCycleSchema, preHandler: member }, updateCycleHandler);
   app.delete('/:cycleId', { schema: deleteCycleSchema, preHandler: admin }, deleteCycleHandler);
 

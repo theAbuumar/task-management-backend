@@ -17,6 +17,7 @@ import { LocalStorageDriver } from '../src/lib/storage.js';
 import { seedDemo, DOMAIN, SLUG, type SeedDemoResult } from '../src/prisma/demo/university.js';
 import { runReminders } from '../src/modules/control/reminders.js';
 import { runRecurring } from '../src/modules/recurring/service.js';
+import { runReportSchedules } from '../src/modules/report-schedules/run.js';
 import {
   AUDIT_GROUPS,
   AuditQuerySchema,
@@ -36,8 +37,8 @@ const NOW = (() => {
 const TELEGRAM_ID = String(7_000_000_000 + (TS % 1_000_000_000));
 const TAKEN_TELEGRAM_ID = String(8_000_000_000 + (TS % 1_000_000_000));
 
-// Every type a service creates today (invite_received, report_ready and digest are
-// reserved by ADR-020 and not produced yet, so the demo must not invent them).
+// Every type a service creates today (invite_received and digest are reserved by
+// ADR-020 and not produced yet, so the demo must not invent them).
 const PRODUCED: NotificationType[] = [
   'issue_assigned',
   'acknowledged',
@@ -52,8 +53,10 @@ const PRODUCED: NotificationType[] = [
   'due_soon',
   'overdue',
   'escalated',
+  'report_ready',
 ];
-const SYSTEM: NotificationType[] = ['due_soon', 'overdue', 'escalated'];
+// A planned report's author receives it too (10.B5).
+const SYSTEM: NotificationType[] = ['due_soon', 'overdue', 'escalated', 'report_ready'];
 
 let dir: string;
 let storage: LocalStorageDriver;
@@ -170,6 +173,59 @@ describe('demo seed (13.B1)', () => {
       workspaceId: seeded.workspaceId,
     });
     expect(run).toEqual({ created: 0, failed: 0, paused: 0 });
+  });
+
+  it('planned reports: the rector’s Monday справка with real files, nothing left to send (10.B5)', async () => {
+    const schedules = await prisma.reportSchedule.findMany({
+      where: { workspace_id: seeded.workspaceId },
+      include: { runs: true, created_by: { select: { email: true } } },
+    });
+    expect(schedules.map((s) => s.created_by.email).sort()).toEqual(
+      ['dean.econ', 'pr.edu', 'rector'].map((h) => `${h}${DOMAIN}`),
+    );
+    const rector = schedules.find((s) => s.created_by.email === `rector${DOMAIN}`)!;
+    expect(rector).toMatchObject({
+      report: 'discipline',
+      frequency: 'weekly',
+      by_weekday: [1],
+      time: '08:00',
+      channels: ['telegram', 'email'],
+    });
+    expect(rector.recipient_ids).toHaveLength(2);
+    expect(rector.runs.length).toBeGreaterThanOrEqual(3);
+    for (const s of schedules) {
+      expect(s.next_run_at!.getTime()).toBeGreaterThan(NOW);
+      for (const run of s.runs) {
+        expect(run.created_at.getTime()).toBeLessThan(NOW);
+        expect(run.period_to < run.created_at.toISOString().slice(0, 10)).toBe(true);
+        const bytes = await readFile(path.join(dir, run.storage_key!));
+        expect(bytes.length).toBe(run.file_size);
+        expect(bytes.subarray(0, 2).toString('latin1')).toBe(
+          run.mime_type === 'application/pdf' ? '%P' : 'PK',
+        );
+      }
+    }
+    // The presenter's Telegram (the vice-rector here) got the rector's справка.
+    const deliveries = rector.runs[0]!.deliveries as { channel: string; status: string }[];
+    expect(
+      deliveries
+        .filter((d) => d.channel === 'telegram')
+        .map((d) => d.status)
+        .sort(),
+    ).toEqual(['sent', 'skipped']);
+    // «Отчёт готов» points at real sendings.
+    const notes = await prisma.notification.findMany({
+      where: { workspace_id: seeded.workspaceId, type: 'report_ready' },
+    });
+    const runIds = new Set(schedules.flatMap((s) => s.runs.map((r) => r.id)));
+    expect(notes.length).toBeGreaterThan(0);
+    expect(notes.every((n) => runIds.has(n.entity_id!))).toBe(true);
+    // The scheduler has nothing to send now.
+    const pass = await runReportSchedules(prisma, storage, {
+      now: new Date(NOW),
+      workspaceId: seeded.workspaceId,
+    });
+    expect(pass).toEqual({ sent: 0, failed: 0, paused: 0 });
   });
 
   it('has the Ф4 structure: three stages, modules with leads, sub-issues, a thread (ADR-031)', async () => {

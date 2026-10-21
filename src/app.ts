@@ -58,6 +58,7 @@ import { controlRoutes } from './modules/control/routes.js';
 import { controlAdminRoutes } from './modules/control/admin-routes.js';
 import { meRoutes } from './modules/control/summary-routes.js';
 import { analyticsRoutes } from './modules/analytics/routes.js';
+import { reportScheduleRoutes } from './modules/report-schedules/routes.js';
 import { invalidateAnalytics } from './modules/analytics/data.js';
 import { eventRoutes } from './modules/events/routes.js';
 import { auditRoutes } from './modules/audit/routes.js';
@@ -241,6 +242,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(meRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug/me' });
   // Analytics and reports for the management (Ф10).
   await app.register(analyticsRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug' });
+  // Planned reports (10.B5, ADR-032).
+  await app.register(reportScheduleRoutes, { prefix: '/api/v1/workspaces/:workspaceSlug' });
   await app.register(activityRoutes, {
     prefix: '/api/v1/workspaces/:workspaceSlug/projects/:projectId/issues/:issueId/activity',
   });

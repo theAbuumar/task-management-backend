@@ -70,7 +70,12 @@ export type ErrorCode =
   | 'DISTRIBUTION_CHILD'
   | 'USER_NOT_FOUND'
   | 'IMPORT_FILE_INVALID'
-  | 'IMPORT_TOO_MANY_ROWS';
+  | 'IMPORT_TOO_MANY_ROWS'
+  | 'REPORT_RECIPIENTS_FORBIDDEN'
+  | 'RECIPIENT_NOT_MEMBER'
+  | 'AUTHOR_NOT_MEMBER'
+  | 'AUTHOR_NOT_ADMIN'
+  | 'PROJECT_NOT_FOUND';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -155,6 +160,15 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
   IMPORT_FILE_INVALID:
     'The import file could not be read — use the XLSX template or a CSV with its columns (details.reason)',
   IMPORT_TOO_MANY_ROWS: 'An import takes at most 500 rows at a time (details.limit)',
+  REPORT_RECIPIENTS_FORBIDDEN:
+    'Only a planned report of an admin or the owner can go to other people — anyone else receives their own',
+  RECIPIENT_NOT_MEMBER:
+    'Every recipient of a planned report must be an active member of the workspace',
+  AUTHOR_NOT_MEMBER:
+    'The author of the planned report has lost access to the workspace — the report is paused',
+  AUTHOR_NOT_ADMIN:
+    'The author of a planned report with other recipients is no longer an admin — the report is paused',
+  PROJECT_NOT_FOUND: 'The project of the planned report is gone or no longer visible to its author',
 };
 
 /**

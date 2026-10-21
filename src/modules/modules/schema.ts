@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { FastifySchema } from 'fastify';
+import { BURNDOWN_DESCRIPTION, BURNDOWN_SHAPE } from '../../lib/burndown.js';
 
 const MODULE_STATUSES = ['backlog', 'in_progress', 'paused', 'completed', 'cancelled'] as const;
 
@@ -183,4 +184,13 @@ export const removeIssueFromModuleSchema: FastifySchema = {
     },
   },
   response: { 204: { type: 'null' } },
+};
+
+export const moduleBurndownSchema: FastifySchema = {
+  tags,
+  summary: 'Burndown and burnup of a module (from its start to its target date)',
+  description: BURNDOWN_DESCRIPTION,
+  security,
+  params: moduleParams,
+  response: { 200: BURNDOWN_SHAPE },
 };

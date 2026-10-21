@@ -127,6 +127,10 @@ const GUEST_WRITES: [string, (g: ReturnType<typeof as>) => request.Test][] = [
         department_ids: [ids.department],
       }),
   ],
+  [
+    'plan a report',
+    (g) => g.post(api('/report-schedules'), { report: 'discipline', frequency: 'weekly' }),
+  ],
 ];
 
 describe('guest is read-only', () => {
@@ -148,6 +152,7 @@ describe('guest is read-only', () => {
       api('/analytics/summary'),
       api('/members'),
       api('/trash'),
+      api('/report-schedules'),
     ]) {
       const res = await as(guest).get(url);
       expect(res.status, url).toBe(200);

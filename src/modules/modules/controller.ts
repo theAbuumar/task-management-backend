@@ -48,6 +48,21 @@ export async function getModuleHandler(
   reply.send(mod);
 }
 
+export async function moduleBurndownHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const { projectId, moduleId } = request.params as { projectId: string; moduleId: string };
+  reply.send(
+    await moduleService.moduleBurndown(
+      request.server.prisma,
+      request.workspace.id,
+      projectId,
+      moduleId,
+    ),
+  );
+}
+
 export async function updateModuleHandler(
   request: FastifyRequest,
   reply: FastifyReply,

@@ -86,6 +86,33 @@ enum IssueKind {
   assignment
 }
 
+// Плановые отчёты (Ф10 10.B5, ADR-032): the documents of «Аналитика» (10.B4).
+enum ReportKind {
+  // «Справка об исполнении поручений», PDF.
+  discipline
+  // «Реестр поручений», XLSX.
+  assignments
+  // «Отчёт по проекту», PDF; exactly one project in the filters.
+  project
+}
+
+// Always whole days before the day of sending.
+enum ReportPeriod {
+  previous_week
+  previous_month
+  previous_quarter
+  last_30_days
+}
+
+enum ReportRunStatus {
+  // Every recipient got it in every chosen channel they have.
+  sent
+  // Some deliveries failed.
+  partial
+  // The document was not made (the reason is in `error`).
+  failed
+}
+
 // Outcome of a hand-in for review (Ф5).
 enum ReviewDecision {
   pending
@@ -211,6 +238,7 @@ model User {
   checked_items             IssueChecklistItem[]    @relation("ChecklistDoneBy")
   recurring_rules           RecurringRule[]
   issue_templates           IssueTemplate[]
+  report_schedules          ReportSchedule[]
 }
 
 // Rotating refresh tokens. One row per live token; revoked_at set on logout/rotation.
@@ -401,6 +429,8 @@ model Workspace {
   issue_drafts     IssueDraft[]
   recurring_rules  RecurringRule[]
   issue_templates  IssueTemplate[]
+  report_schedules ReportSchedule[]
+  report_runs      ReportRun[]
 }
 
 model WorkspaceMember {
@@ -1169,4 +1199,79 @@ model IssueTemplate {
 
   @@index([workspace_id, project_id])
   @@index([project_id])
+}
+
+// A report sent by itself (Ф10 10.B5, ADR-032): «каждый понедельник в 08:00
+// справка за прошлую неделю ректору в Telegram и на почту». The document is built
+// with its author's rights at the time of sending.
+model ReportSchedule {
+  id            String              @id @default(uuid())
+  workspace_id  String
+  created_by_id String
+  // Optional own name; the client shows the document's name otherwise.
+  name          String?
+  report        ReportKind
+  // Analytics filters (10.B1): { department?: string[], project?: string[], kind? }.
+  filters       Json                @default("{}")
+  period        ReportPeriod
+  // daily / weekly / monthly / quarterly (yearly is not offered).
+  frequency     RecurrenceFrequency
+  // weekly: ISO weekdays, 1 = Monday … 7 = Sunday.
+  by_weekday    Int[]               @default([])
+  // monthly / quarterly: 1–31; past the month's end means its last day.
+  by_monthday   Int?
+  // Local wall-clock time, "HH:MM", in the workspace zone.
+  time          String              @default("08:00")
+  // Anchor of the schedule math (a quarter's first day for quarterly reports).
+  start_date    String
+  // Users who receive it; without a foreign key — who is still an active member
+  // is checked at sending time.
+  recipient_ids String[]            @default([])
+  // "telegram" and/or "email"; the in-app notification is always made.
+  channels      String[]            @default([])
+  next_run_at   DateTime?
+  last_run_at   DateTime?
+  // Why the latest run sent nothing (or the pause reason); null when it worked.
+  last_error    String?
+  is_active     Boolean             @default(true)
+  created_at    DateTime            @default(now())
+  updated_at    DateTime            @updatedAt
+
+  workspace  Workspace   @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  created_by User        @relation(fields: [created_by_id], references: [id], onDelete: Cascade)
+  runs       ReportRun[]
+
+  @@index([is_active, next_run_at])
+  @@index([workspace_id])
+}
+
+// One sending of a planned report: the period, the key figures, the stored file
+// and how it was delivered to each recipient. The latest 12 are kept.
+model ReportRun {
+  id              String          @id @default(uuid())
+  workspace_id    String
+  schedule_id     String
+  // Who pressed «Отправить сейчас»; null — sent by the schedule.
+  triggered_by_id String?
+  // Local dates "YYYY-MM-DD", inclusive.
+  period_from     String
+  period_to       String
+  status          ReportRunStatus
+  error           String?
+  file_name       String?
+  mime_type       String?
+  file_size       Int?
+  storage_key     String?         @unique
+  // Figures of the message: created, completed, on_time, late, overdue, discipline.
+  summary         Json            @default("{}")
+  recipient_ids   String[]        @default([])
+  // [{ user_id, channel: telegram | email, status: sent | failed | skipped, error? }]
+  deliveries      Json            @default("[]")
+  created_at      DateTime        @default(now())
+
+  workspace Workspace      @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  schedule  ReportSchedule @relation(fields: [schedule_id], references: [id], onDelete: Cascade)
+
+  @@index([schedule_id, created_at])
+  @@index([workspace_id])
 }

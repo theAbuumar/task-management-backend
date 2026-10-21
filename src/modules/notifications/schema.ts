@@ -88,13 +88,21 @@ const notificationShape = {
     created_at: { type: 'string', format: 'date-time' },
     actor: actorShape,
     issue: issueBriefShape,
-    // Only on deadline_change_decided: the decision and the requested date.
+    // deadline_change_decided: the decision and the requested date;
+    // report_ready: the sending of a planned report (10.B5) — download it by run_id.
     details: {
       type: 'object',
       nullable: true,
       properties: {
         approved: { type: 'boolean' },
         new_due_date: { type: 'string', format: 'date-time' },
+        run_id: { type: 'string' },
+        schedule_id: { type: 'string' },
+        report: { type: 'string', enum: ['discipline', 'assignments', 'project'] },
+        name: { type: 'string', nullable: true },
+        period_from: { type: 'string' },
+        period_to: { type: 'string' },
+        file_name: { type: 'string', nullable: true },
       },
     },
   },

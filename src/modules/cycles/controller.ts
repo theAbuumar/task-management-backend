@@ -45,6 +45,21 @@ export async function getCycleHandler(request: FastifyRequest, reply: FastifyRep
   reply.send(cycle);
 }
 
+export async function cycleBurndownHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const { projectId, cycleId } = request.params as { projectId: string; cycleId: string };
+  reply.send(
+    await cycleService.cycleBurndown(
+      request.server.prisma,
+      request.workspace.id,
+      projectId,
+      cycleId,
+    ),
+  );
+}
+
 export async function updateCycleHandler(
   request: FastifyRequest,
   reply: FastifyReply,

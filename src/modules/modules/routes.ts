@@ -9,6 +9,7 @@ import {
   deleteModuleSchema,
   addIssuesToModuleSchema,
   removeIssueFromModuleSchema,
+  moduleBurndownSchema,
 } from './schema.js';
 import {
   listModulesHandler,
@@ -18,6 +19,7 @@ import {
   deleteModuleHandler,
   addIssuesToModuleHandler,
   removeIssueFromModuleHandler,
+  moduleBurndownHandler,
 } from './controller.js';
 
 export async function moduleRoutes(app: FastifyInstance): Promise<void> {
@@ -29,6 +31,11 @@ export async function moduleRoutes(app: FastifyInstance): Promise<void> {
   app.post('/', { schema: createModuleSchema, preHandler: member }, createModuleHandler);
 
   app.get('/:moduleId', { schema: getModuleSchema, preHandler: member }, getModuleHandler);
+  app.get(
+    '/:moduleId/burndown',
+    { schema: moduleBurndownSchema, preHandler: member },
+    moduleBurndownHandler,
+  );
   app.patch('/:moduleId', { schema: updateModuleSchema, preHandler: member }, updateModuleHandler);
   app.delete('/:moduleId', { schema: deleteModuleSchema, preHandler: admin }, deleteModuleHandler);
 
