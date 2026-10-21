@@ -27,6 +27,7 @@ import type { StorageDriver } from '../../lib/storage.js';
 import { addDays, localDate } from '../../lib/tz.js';
 import { frontendUrl } from '../../lib/urls.js';
 import { escapeHtml, sendBotDocument, telegramConfigured } from '../auth/telegram.service.js';
+import { renderEmail } from '../../lib/notify/email-layout.js';
 import { canLinkButtons } from '../telegram/views.js';
 import { analyticsData, type AnalyticsData } from '../analytics/data.js';
 import { assignmentsXlsx, disciplinePdf, projectPdf } from '../analytics/reports.js';
@@ -285,16 +286,29 @@ async function deliver(
     ? { inline_keyboard: [[{ text: '📈 Открыть аналитику', url: link }]] }
     : undefined;
   const subject = `${built.title} за ${when} — ${workspace.name}`;
-  const text = [
-    `${built.title} за ${when} во вложении.`,
-    '',
-    ...lines,
-    '',
-    `Открыть аналитику: ${link}`,
-    '',
-    `Отчёт отправлен по расписанию${schedule.name ? ` «${schedule.name}»` : ''}. ` +
-      `Изменить или отключить: ${frontendUrl('/settings/reports')}`,
-  ].join('\n');
+  // The common letter layout (8.B4): figures as tiles, the file attached.
+  const brand = await prisma.workspace.findUnique({
+    where: { id: workspace.id },
+    select: { name: true, short_name: true, logo_url: true },
+  });
+  const s = built.summary;
+  const letter = renderEmail({
+    locale: 'ru',
+    workspace: brand ?? { name: workspace.name },
+    heading: `${built.title} за ${when}`,
+    paragraphs: ['Документ во вложении.'],
+    figures: [
+      { label: 'Исполнено в срок', value: pct(s.discipline) },
+      { label: 'Исполнено', value: String(s.completed) },
+      { label: 'Поступило', value: String(s.created) },
+      { label: 'Просрочено', value: String(s.overdue) },
+    ],
+    button: { label: 'Открыть аналитику', url: link },
+    footer: [
+      `Отчёт отправлен по расписанию${schedule.name ? ` «${schedule.name}»` : ''}. ` +
+        `Изменить или отключить: ${frontendUrl('/settings/reports')}`,
+    ],
+  });
 
   const deliveries: Delivery[] = [];
   const sends: Promise<void>[] = [];
@@ -331,7 +345,7 @@ async function deliver(
           sendMail({
             to: user.email,
             subject,
-            text,
+            ...letter,
             attachments: [
               { filename: built.fileName, content: built.data, contentType: built.mimeType },
             ],

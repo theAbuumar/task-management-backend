@@ -228,6 +228,7 @@ model User {
   attachments               Attachment[]
   notifications             Notification[]          @relation("NotificationRecipient")
   triggered_notifications   Notification[]          @relation("NotificationActor")
+  notification_deliveries   NotificationDelivery[]
   sent_invites              WorkspaceInvite[]
   member_invites_sent       WorkspaceMemberInvite[] @relation("MemberInviteInviter")
   member_invites_received   WorkspaceMemberInvite[] @relation("MemberInviteTarget")
@@ -431,6 +432,7 @@ model Workspace {
   issue_templates  IssueTemplate[]
   report_schedules ReportSchedule[]
   report_runs      ReportRun[]
+  deliveries       NotificationDelivery[]
 }
 
 model WorkspaceMember {
@@ -616,6 +618,7 @@ model Issue {
   activities        ActivityLog[]
   attachments       Attachment[]
   notifications     Notification[]
+  deliveries        NotificationDelivery[]
   reviews           IssueReview[]
   deadline_requests DeadlineChangeRequest[]
   watchers          IssueWatcher[]
@@ -856,9 +859,69 @@ model Notification {
   actor     User      @relation("NotificationActor", fields: [actor_id], references: [id])
   issue     Issue?    @relation(fields: [issue_id], references: [id], onDelete: Cascade)
 
+  deliveries NotificationDelivery[]
+
   @@index([recipient_id, workspace_id, is_read])
   @@index([workspace_id])
   @@index([issue_id])
+}
+
+// ─── Notification delivery (Ф8 8.B3, ADR-033) ────────────────────────────────
+
+enum DeliveryChannel {
+  telegram
+  email
+}
+
+enum DeliveryStatus {
+  queued
+  sending
+  sent
+  failed
+  skipped
+}
+
+// One out-of-app copy of an event for one person in one channel — the queue of the
+// notification dispatcher and its delivery log. Written in the transaction of the
+// action (with the in-app Notification), sent right after it commits; retries,
+// copies waiting for the end of quiet hours and digests are sent by the scheduler.
+model NotificationDelivery {
+  id              String           @id @default(uuid())
+  workspace_id    String
+  // The in-app notification this copy belongs to; null — a «task for everyone»
+  // broadcast or a digest, which have no bell row.
+  notification_id String?
+  user_id         String
+  type            NotificationType
+  channel         DeliveryChannel
+  status          DeliveryStatus   @default(queued)
+  issue_id        String?
+  // Who caused the event; null — a system event (deadline reminder, digest).
+  actor_id        String?
+  // What the message needs that may change later: days to the deadline, the remark,
+  // old and new dates; the content of a digest.
+  payload         Json             @default("{}")
+  // A digest goes once a day / week: digest:<kind>:<user>:<date>.
+  dedupe_key      String?          @unique
+  attempts        Int              @default(0)
+  next_attempt_at DateTime         @default(now())
+  // Why it waits (quiet_hours) or was skipped (no_address, member_deactivated,
+  // issue_deleted, user_inactive).
+  reason          String?
+  error           String?
+  sent_at         DateTime?
+  created_at      DateTime         @default(now())
+  updated_at      DateTime         @updatedAt
+
+  workspace    Workspace     @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  notification Notification? @relation(fields: [notification_id], references: [id], onDelete: SetNull)
+  issue        Issue?        @relation(fields: [issue_id], references: [id], onDelete: Cascade)
+
+  @@index([status, next_attempt_at])
+  @@index([user_id, created_at])
+  @@index([issue_id])
+  @@index([workspace_id, created_at])
 }
 
 // Workspace invite — allows admins to invite not-yet-registered users by email.

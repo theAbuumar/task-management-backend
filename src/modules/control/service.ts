@@ -8,7 +8,7 @@ import type { PrismaClient } from '@prisma/client';
 import { AppError } from '../../lib/errors.js';
 import { recordActivity, ACTIVITY_ACTIONS } from '../../lib/activity.js';
 import { notify } from '../../lib/notifications.js';
-import { deliverIssueEvent } from '../../lib/deliver.js';
+import { deliverNow } from '../../lib/notify/send.js';
 import { controlSettings } from '../../lib/control-settings.js';
 import * as issueService from '../issues/service.js';
 import {
@@ -102,12 +102,7 @@ export async function submitReview(prisma: PrismaClient, ctx: Ctx, body: SubmitR
     });
   });
 
-  await deliverIssueEvent(prisma, {
-    issueId: issue.id,
-    kind: 'review_requested',
-    recipientIds: reviewersOf(issue),
-    actorId: ctx.actorId,
-  });
+  await deliverNow(prisma, [issue.id]);
   return full(prisma, ctx);
 }
 
@@ -177,13 +172,7 @@ export async function decideReview(
     });
   });
 
-  await deliverIssueEvent(prisma, {
-    issueId: issue.id,
-    kind: decision === 'approved' ? 'review_approved' : 'review_returned',
-    recipientIds: assigneeIds,
-    actorId: ctx.actorId,
-    details: { comment },
-  });
+  await deliverNow(prisma, [issue.id]);
   return full(prisma, ctx);
 }
 
@@ -227,12 +216,7 @@ export async function acknowledge(prisma: PrismaClient, ctx: Ctx) {
         issue_id: issue.id,
       });
     });
-    await deliverIssueEvent(prisma, {
-      issueId: issue.id,
-      kind: 'acknowledged',
-      recipientIds: reviewersOf(issue),
-      actorId: ctx.actorId,
-    });
+    await deliverNow(prisma, [issue.id]);
   }
   return full(prisma, ctx);
 }
@@ -286,17 +270,16 @@ export async function requestDeadlineChange(
       recipient_ids: reviewersOf(issue),
       issue_id: issue.id,
       entity_id: created.id,
+      payload: {
+        old_due: issue.due_date?.toISOString() ?? null,
+        new_due: newDue.toISOString(),
+        reason: created.reason,
+      },
     });
     return created;
   });
 
-  await deliverIssueEvent(prisma, {
-    issueId: issue.id,
-    kind: 'deadline_change_requested',
-    recipientIds: reviewersOf(issue),
-    actorId: ctx.actorId,
-    details: { oldDue: issue.due_date, newDue, reason: request.reason },
-  });
+  await deliverNow(prisma, [issue.id]);
   return request;
 }
 
@@ -356,17 +339,12 @@ export async function decideDeadlineChange(
       recipient_ids: [request.requested_by_id],
       issue_id: issue.id,
       entity_id: request.id,
+      payload: { approved: approve, new_due: request.new_due_date.toISOString(), comment },
     });
     return updated;
   });
 
-  await deliverIssueEvent(prisma, {
-    issueId: issue.id,
-    kind: 'deadline_change_decided',
-    recipientIds: [request.requested_by_id],
-    actorId: ctx.actorId,
-    details: { approved: approve, newDue: request.new_due_date, comment },
-  });
+  await deliverNow(prisma, [issue.id]);
   return decided;
 }
 

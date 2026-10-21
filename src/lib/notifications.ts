@@ -4,6 +4,10 @@
 // in-app `Notification` rows (TZ §5.18). They run at the same service points that
 // already write the activity trail (assign / comment / mention events).
 //
+// Events that leave the app (8.B2 groups) also get their Telegram / email copies
+// queued here, in the same transaction (the dispatcher, Ф8 8.B3, ADR-033); the
+// service sends them right after the commit with `deliverNow`.
+//
 // Invariants enforced here so callers stay simple:
 //   - the actor is never notified about their own action (self-notify is dropped),
 //   - recipient ids are de-duplicated within a single call,
@@ -14,6 +18,8 @@
 
 import type { PrismaClient, Prisma, NotificationType } from '@prisma/client';
 import { publish } from './realtime.js';
+import { enqueueDeliveries, goesOut } from './notify/enqueue.js';
+import type { DeliveryPayload } from './notify/texts.js';
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -32,6 +38,8 @@ export interface NotificationInput {
    * one, so callers pass a stand-in and set this to keep them as a recipient.
    */
   include_actor?: boolean;
+  /** What the Telegram / email copy needs that may change later (days, remark, dates). */
+  payload?: DeliveryPayload;
 }
 
 /**
@@ -44,7 +52,7 @@ export async function notify(db: DbClient, input: NotificationInput): Promise<vo
   );
   if (recipients.length === 0) return;
 
-  await db.notification.createMany({
+  const created = await db.notification.createManyAndReturn({
     data: recipients.map((recipient_id) => ({
       workspace_id: input.workspace_id,
       recipient_id,
@@ -53,7 +61,18 @@ export async function notify(db: DbClient, input: NotificationInput): Promise<vo
       issue_id: input.issue_id ?? null,
       entity_id: input.entity_id ?? null,
     })),
+    select: { id: true, recipient_id: true },
   });
+  if (goesOut(input.type)) {
+    await enqueueDeliveries(db, {
+      workspace_id: input.workspace_id,
+      type: input.type,
+      actor_id: input.include_actor ? null : input.actor_id,
+      issue_id: input.issue_id ?? null,
+      payload: input.payload,
+      recipients: created.map((n) => ({ user_id: n.recipient_id, notification_id: n.id })),
+    });
+  }
   // Live bell (8.B1): only the recipients receive this event.
   await publish(db, {
     t: 'notification.created',

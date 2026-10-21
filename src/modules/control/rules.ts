@@ -138,6 +138,7 @@ export async function closePendingReview(
     recipient_ids: [pending.submitted_by_id, ...assigneeIds],
     issue_id: issue.id,
     entity_id: pending.id,
+    payload: { comment },
   });
   return pending.id;
 }

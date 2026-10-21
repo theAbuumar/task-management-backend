@@ -75,7 +75,8 @@ export type ErrorCode =
   | 'RECIPIENT_NOT_MEMBER'
   | 'AUTHOR_NOT_MEMBER'
   | 'AUTHOR_NOT_ADMIN'
-  | 'PROJECT_NOT_FOUND';
+  | 'PROJECT_NOT_FOUND'
+  | 'NOT_DEPARTMENT_HEAD';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -169,6 +170,8 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
   AUTHOR_NOT_ADMIN:
     'The author of a planned report with other recipients is no longer an admin — the report is paused',
   PROJECT_NOT_FOUND: 'The project of the planned report is gone or no longer visible to its author',
+  NOT_DEPARTMENT_HEAD:
+    'The weekly digest summarises a department you head — you are not the head of any department',
 };
 
 /**

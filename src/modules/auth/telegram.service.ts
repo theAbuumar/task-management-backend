@@ -269,47 +269,6 @@ export async function sendWorkspaceInvitePrompt(
   });
 }
 
-export interface IssueNotificationOptions {
-  /** Human-readable issue key, e.g. "MOB-123". */
-  issueKey: string;
-  /** Deep link `FRONTEND_URL/w/:slug/browse/:key` (2.B2). */
-  issueUrl: string;
-  issueTitle: string;
-  projectName: string;
-  /** Who created/assigned the task — shown so the recipient knows the source. */
-  actorName: string;
-  /**
-   * true when the recipient is a named assignee (created-with-assignee, or added later);
-   * false for the "task with no assignee" broadcast to every project member.
-   */
-  assigned: boolean;
-  /** An assignment (поручение) is announced in its own words (ADR-021). */
-  kind?: 'task' | 'assignment';
-  /** Action buttons under the message (bot inside the backend, ADR-011). */
-  buttons?: InlineButton[][];
-}
-
-/**
- * Notify a Telegram-linked user about a task: either that they were assigned one
- * (`assigned`), or that a new unassigned task appeared in a project they belong to.
- * `chatId` for a private chat equals the user's telegram id, so we message them directly.
- */
-export async function sendIssueNotification(
-  chatId: number,
-  opts: IssueNotificationOptions,
-): Promise<void> {
-  const headline = !opts.assigned
-    ? `🆕 ${opts.actorName} создал(а) задачу в проекте «${opts.projectName}»`
-    : opts.kind === 'assignment'
-      ? `📌 ${opts.actorName} поручил(а) вам`
-      : `📋 ${opts.actorName} назначил(а) вам задачу`;
-  await sendBotMessage(
-    chatId,
-    [headline, '', `${opts.issueKey}  ${opts.issueTitle}`, '', opts.issueUrl].join('\n'),
-    opts.buttons ? { reply_markup: { inline_keyboard: opts.buttons } } : {},
-  );
-}
-
 /**
  * Deliver a 6-digit account-deletion code to a Telegram-only account through the bot
  * (the analogue of {@link sendOtpEmail} for accounts with no email). The chat id for a

@@ -15,7 +15,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
-import { routeRecipients } from '../src/lib/deliver.js';
+import { routeRecipients } from '../src/lib/notify/enqueue.js';
 
 const TS = Date.now();
 const PASSWORD = 'Password123!';

@@ -2,7 +2,9 @@
 // minutes inside the API process, creates the issues of recurring rules whose run
 // is due (Ф6 6.B4, ADR-030), sends the planned reports whose time has come (Ф10
 // 10.B5, ADR-032), and empties the trash of what was deleted more than 30 days ago
-// (Ф7 7.B6, ADR-017).
+// (Ф7 7.B6, ADR-017). Every 30 seconds a lighter pass sends the queued Telegram /
+// email copies of notifications that are due: retries, copies that waited for the
+// end of quiet hours, digests (Ф8 8.B3, 8.B5, ADR-033).
 //
 // "Режим 6 дней" simplification of ADR-009 (pg-boss): a timer + a PostgreSQL
 // advisory lock, so with several instances only one runs a pass at a time, and
@@ -17,8 +19,11 @@ import { runRecurring } from '../modules/recurring/service.js';
 import { runReportSchedules } from '../modules/report-schedules/run.js';
 import { purgeExpiredTrash } from '../modules/trash/service.js';
 import { writeAudit } from '../lib/audit.js';
+import { purgeDeliveries, runDeliveries } from '../lib/notify/send.js';
+import { runDigests } from '../lib/notify/digest.js';
 
 const INTERVAL_MS = 5 * 60 * 1000;
+const DELIVERY_INTERVAL_MS = 30 * 1000;
 const FIRST_RUN_DELAY_MS = 30 * 1000;
 /** Arbitrary app-wide key for pg_try_advisory_lock. */
 const LOCK_KEY = 420_017;
@@ -87,6 +92,10 @@ async function schedulerPlugin(app: FastifyInstance): Promise<void> {
           const sent = result.sent.due_soon + result.sent.overdue + result.sent.escalated;
           if (sent > 0) app.log.info({ reminders: result.sent }, 'deadline reminders sent');
 
+          // Digests whose hour has come (8.B5); the 30-second pass sends them.
+          const digests = await runDigests(app.prisma);
+          if (digests.daily + digests.weekly > 0) app.log.info({ digests }, 'digests queued');
+
           const reports = await runReportSchedules(app.prisma, app.storage);
           if (reports.sent + reports.failed + reports.paused > 0) {
             app.log.info({ reports }, 'planned reports sent');
@@ -104,6 +113,7 @@ async function schedulerPlugin(app: FastifyInstance): Promise<void> {
             });
           }
           if (purged.length > 0) app.log.info({ purged: purged.length }, 'trash emptied');
+          await purgeDeliveries(app.prisma);
         },
         { maxWait: 10_000, timeout: 10 * 60 * 1000 },
       );
@@ -118,11 +128,31 @@ async function schedulerPlugin(app: FastifyInstance): Promise<void> {
     }
   };
 
+  // Copies are claimed row by row (FOR UPDATE SKIP LOCKED), so this pass needs no
+  // advisory lock: several instances share the queue without double sends.
+  let delivering = false;
+  const deliver = async () => {
+    if (delivering) return;
+    delivering = true;
+    try {
+      const r = await runDeliveries(app.prisma);
+      if (r.sent + r.failed + r.retried + r.deferred + r.skipped > 0) {
+        app.log.info({ deliveries: r }, 'notification copies processed');
+      }
+    } catch (err) {
+      app.log.error({ err }, 'delivery pass failed');
+    } finally {
+      delivering = false;
+    }
+  };
+
   const first = setTimeout(() => void tick(), FIRST_RUN_DELAY_MS);
   const interval = setInterval(() => void tick(), INTERVAL_MS);
+  const deliveries = setInterval(() => void deliver(), DELIVERY_INTERVAL_MS);
   app.addHook('onClose', async () => {
     clearTimeout(first);
     clearInterval(interval);
+    clearInterval(deliveries);
   });
 }
 

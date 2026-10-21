@@ -227,7 +227,7 @@ export async function emailOtpRequest(
   }
 
   const code = await issueOtp(prisma, { email: body.email }, 'login');
-  await sendOtpEmail(body.email, code, 'login');
+  await sendOtpEmail(body.email, code, 'login', existing?.locale === 'en' ? 'en' : 'ru');
 
   return { status: 'otp_sent', email: body.email };
 }
@@ -289,7 +289,7 @@ export async function requestAccountDeletion(
   // Email accounts (incl. Google/GitHub with an email) get the code by email.
   if (user.email) {
     const code = await issueOtp(prisma, { email: user.email }, 'delete_account');
-    await sendOtpEmail(user.email, code, 'delete_account');
+    await sendOtpEmail(user.email, code, 'delete_account', user.locale === 'en' ? 'en' : 'ru');
     return { status: 'otp_sent', channel: 'email', email: user.email };
   }
 
@@ -350,6 +350,8 @@ export async function confirmAccountDeletion(
     await tx.savedView.deleteMany({ where: { owner_id: userId, is_shared: false } });
     // Drafts of new issues are the person's unsent text (7.B5).
     await tx.issueDraft.deleteMany({ where: { user_id: userId } });
+    // What was sent to their Telegram / email, and what still waits (ADR-033).
+    await tx.notificationDelivery.deleteMany({ where: { user_id: userId } });
     // Drop any outstanding codes for this account, on either channel.
     await tx.emailOtp.deleteMany({
       where: { OR: [{ user_id: userId }, ...(user.email ? [{ email: user.email }] : [])] },

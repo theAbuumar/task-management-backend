@@ -330,6 +330,7 @@ export async function inviteMember(
   await sendInviteEmail({
     to: body.email,
     workspaceName: workspace.name,
+    workspace,
     inviterName: inviter.display_name,
     inviteUrl,
     expiresAt,

@@ -12,7 +12,9 @@
 
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { notify } from '../../lib/notifications.js';
-import { deliverIssueEvent, type IssueEventKind } from '../../lib/deliver.js';
+import { deliverNow } from '../../lib/notify/send.js';
+
+type ReminderKind = 'due_soon' | 'overdue' | 'escalated';
 import { controlSettings } from '../../lib/control-settings.js';
 import { addDays, daysBetween, localDate, localHour, startOfLocalDay } from '../../lib/tz.js';
 import { OPEN_GROUPS } from './rules.js';
@@ -90,7 +92,7 @@ export async function runReminders(
       const owners = assignees.length > 0 ? assignees : [issue.created_by_id];
 
       const send = async (
-        kind: IssueEventKind,
+        kind: ReminderKind,
         logKind: string,
         forDate: string,
         recipients: string[],
@@ -114,18 +116,13 @@ export async function runReminders(
         await notify(prisma, {
           workspace_id: ws.id,
           actor_id: issue.controller_id ?? issue.created_by_id,
-          type: kind as 'due_soon' | 'overdue' | 'escalated',
+          type: kind,
           recipient_ids: fresh,
           issue_id: issue.id,
           include_actor: true,
+          payload: { days, due: issue.due_date?.toISOString() ?? null, ...extra },
         });
-        await deliverIssueEvent(prisma, {
-          issueId: issue.id,
-          kind,
-          recipientIds: fresh,
-          actorId: null,
-          details: { days, newDue: issue.due_date, ...extra },
-        });
+        await deliverNow(prisma, [issue.id]);
         return fresh.length;
       };
 

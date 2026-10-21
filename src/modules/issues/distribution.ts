@@ -10,7 +10,8 @@ import { AppError } from '../../lib/errors.js';
 import { recordActivity, ACTIVITY_ACTIONS } from '../../lib/activity.js';
 import { notify } from '../../lib/notifications.js';
 import { addWatchers } from '../control/rules.js';
-import { getIssue, nextSequenceId, notifyIssueRecipients } from './service.js';
+import { getIssue, nextSequenceId } from './service.js';
+import { deliverNow } from '../../lib/notify/send.js';
 import type { DistributeBody } from './schema.js';
 
 export async function distributeIssue(
@@ -193,20 +194,12 @@ export async function distributeIssue(
     return { parent, children };
   });
 
-  // Telegram / email to each head after commit; delivery problems never fail the request.
-  for (const child of created.children) {
-    try {
-      await notifyIssueRecipients(prisma, {
-        projectId,
-        actorId: creatorId,
-        recipientIds: [child.head],
-        issue: child,
-        assigned: true,
-      });
-    } catch {
-      // Best-effort.
-    }
-  }
+  // Telegram / email to each head right after the commit (queued with the bell rows);
+  // delivery problems never fail the request.
+  await deliverNow(
+    prisma,
+    created.children.map((c) => c.id),
+  );
 
   return getIssue(prisma, workspaceId, projectId, created.parent.id);
 }

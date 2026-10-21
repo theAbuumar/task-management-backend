@@ -2,8 +2,6 @@ import type { PrismaClient, Issue, Prisma, StateGroup, WorkspaceMember } from '@
 import { AppError } from '../../lib/errors.js';
 import { recordActivity, recordActivities, ACTIVITY_ACTIONS } from '../../lib/activity.js';
 import { notify } from '../../lib/notifications.js';
-import { sendIssueNotification } from '../auth/telegram.service.js';
-import { sendIssueNotificationEmail } from '../../lib/email.js';
 import type {
   CreateIssueBody,
   UpdateIssueBody,
@@ -12,10 +10,9 @@ import type {
 } from './schema.js';
 import { expandDepartments, inDepartmentsWhere, visibleIssuesWhere } from './scope.js';
 import { distributionProgress, type DistributionProgress } from './distribution-progress.js';
-import { deliverIssueEvent, routeRecipients } from '../../lib/deliver.js';
-import { issueUrl } from '../../lib/urls.js';
+import { enqueueDeliveries } from '../../lib/notify/enqueue.js';
+import { deliverNow } from '../../lib/notify/send.js';
 import { publish } from '../../lib/realtime.js';
-import { notificationButtons } from '../telegram/views.js';
 import { addDays, localDate, startOfLocalDay } from '../../lib/tz.js';
 import { createChecklistItems } from '../checklist/service.js';
 import {
@@ -535,7 +532,7 @@ export async function createIssue(
     await addWatchers(tx, issue.id, [creatorId, ...assigneeIds, body.controller_id ?? null]);
 
     // Notify anyone assigned at creation time (the creator self-assigning is
-    // filtered out inside `notify`).
+    // filtered out inside `notify`); their Telegram / email copies are queued with it.
     await notify(tx, {
       workspace_id: workspaceId,
       actor_id: creatorId,
@@ -543,31 +540,29 @@ export async function createIssue(
       recipient_ids: body.assignee_ids ?? [],
       issue_id: issue.id,
     });
+    // A task with no assignees is announced out of the app to every project member
+    // (the «task for everyone» case) — no bell row for them.
+    if (!body.assignee_ids?.length) {
+      const members = await tx.projectMember.findMany({
+        where: { project_id: projectId },
+        select: { user_id: true },
+      });
+      await enqueueDeliveries(tx, {
+        workspace_id: workspaceId,
+        type: 'issue_assigned',
+        actor_id: creatorId,
+        issue_id: issue.id,
+        payload: { assigned: false },
+        recipients: members.map((m) => ({ user_id: m.user_id })),
+      });
+    }
 
     return issue;
   });
 
-  // Best-effort out-of-band notifications, outside the transaction (network I/O). A task
-  // with named assignees notifies them; a task with none notifies every project member
-  // (the "task for everyone" case). Each recipient gets Telegram if linked, else email.
-  // The mutation has already committed, so any failure here is swallowed — it must never
-  // turn a created issue into an error response.
-  try {
-    const { recipientIds, assigned } = await issueCreatedRecipients(
-      prisma,
-      projectId,
-      body.assignee_ids ?? [],
-    );
-    await notifyIssueRecipients(prisma, {
-      projectId,
-      actorId: creatorId,
-      recipientIds,
-      issue,
-      assigned,
-    });
-  } catch {
-    // Notification delivery is best-effort; the issue was created regardless.
-  }
+  // The copies go out right after the commit; a channel failure is retried by the
+  // dispatcher and never turns a created issue into an error response.
+  await deliverNow(prisma, [issue.id]);
 
   return issue;
 }
@@ -797,14 +792,8 @@ export async function updateIssue(
       return after;
     })
     .then(async (after) => {
-      for (const e of events) {
-        await deliverIssueEvent(prisma, {
-          issueId,
-          kind: e.kind,
-          recipientIds: e.recipients,
-          actorId,
-        });
-      }
+      // Hand-in / accept / return copies queued by the review helpers.
+      if (events.length > 0) await deliverNow(prisma, [issueId]);
       return after;
     });
 }
@@ -875,20 +864,8 @@ export async function addAssignee(
     });
   });
 
-  // Best-effort notification to the newly assigned user (outside the transaction):
-  // Telegram if linked, else email. The assignment already committed, so a delivery
-  // failure is swallowed.
-  try {
-    await notifyIssueRecipients(prisma, {
-      projectId,
-      actorId,
-      recipientIds: [userId],
-      issue,
-      assigned: true,
-    });
-  } catch {
-    // Notification delivery is best-effort; the assignment succeeded regardless.
-  }
+  // Telegram / email to the newly assigned user, right after the commit.
+  await deliverNow(prisma, [issueId]);
 
   return resolveIssue(prisma, projectId, issueId);
 }
@@ -1003,92 +980,4 @@ export async function detachLabel(
     });
   });
   return resolveIssue(prisma, projectId, issueId);
-}
-
-// ─── Out-of-band notifications (best-effort) ─────────────────────────────────
-
-/**
- * Recipients for a newly created issue's notifications: the named assignees when the
- * issue has any, otherwise every member of its project — the "task for everyone" case.
- * Returns whether the recipients are assignees so the message copy can differ.
- */
-async function issueCreatedRecipients(
-  prisma: PrismaClient,
-  projectId: string,
-  assigneeIds: string[],
-): Promise<{ recipientIds: string[]; assigned: boolean }> {
-  if (assigneeIds.length > 0) return { recipientIds: assigneeIds, assigned: true };
-  const members = await prisma.projectMember.findMany({
-    where: { project_id: projectId },
-    select: { user_id: true },
-  });
-  return { recipientIds: members.map((m) => m.user_id), assigned: false };
-}
-
-/**
- * Best-effort out-of-band fan-out for a task event, one channel per recipient, chosen by
- * their notification settings (8.B2): a linked Telegram account is messaged through the
- * bot; otherwise email is the fallback (when they have an address); nothing during
- * their quiet hours. Must be called AFTER the mutation's transaction commits — never
- * inside it — because it performs network I/O. The actor is never notified about their own
- * action, recipients are de-duplicated, and every individual send is isolated (allSettled),
- * so a delivery problem can never fail the request or roll back the mutation. This is
- * additive to the in-app `Notification` rows written inside the transaction.
- */
-export async function notifyIssueRecipients(
-  prisma: PrismaClient,
-  params: {
-    projectId: string;
-    actorId: string;
-    recipientIds: string[];
-    issue: Pick<Issue, 'id' | 'title' | 'sequence_id' | 'kind' | 'due_date'>;
-    assigned: boolean;
-  },
-): Promise<void> {
-  const recipients = [...new Set(params.recipientIds)].filter((id) => id !== params.actorId);
-  if (recipients.length === 0) return;
-
-  const [project, actor] = await Promise.all([
-    prisma.project.findUnique({
-      where: { id: params.projectId },
-      select: {
-        name: true,
-        identifier: true,
-        workspace: { select: { id: true, slug: true, timezone: true } },
-      },
-    }),
-    prisma.user.findUnique({ where: { id: params.actorId }, select: { display_name: true } }),
-  ]);
-  if (!project || !actor) return;
-
-  const issueKey = `${project.identifier}-${params.issue.sequence_id}`;
-  const link = issueUrl(project.workspace.slug, issueKey);
-  const opts = {
-    issueKey,
-    issueUrl: link,
-    issueTitle: params.issue.title,
-    projectName: project.name,
-    actorName: actor.display_name,
-    assigned: params.assigned,
-    kind: params.issue.kind,
-  };
-
-  // Telegram or email per recipient, by their notification settings (8.B2).
-  const routed = await routeRecipients(prisma, recipients, 'issue_assigned', project.workspace);
-  // «Ознакомлен» and «Перенести срок» right under a new assignment; «Подробнее»
-  // opens the card in the bot.
-  const assignment = params.assigned && params.issue.kind === 'assignment';
-  const buttons = notificationButtons('issue_assigned', params.issue.id, link, {
-    acknowledge: assignment,
-    deadline: assignment && Boolean(params.issue.due_date),
-  });
-  const sends: Promise<unknown>[] = routed.telegram.map((t) =>
-    sendIssueNotification(t.chatId, { ...opts, buttons }),
-  );
-  for (const u of routed.email) {
-    sends.push(sendIssueNotificationEmail({ to: u.email, ...opts }));
-  }
-
-  // allSettled so one failing channel/recipient can't stop the others (it never rejects).
-  await Promise.allSettled(sends);
 }

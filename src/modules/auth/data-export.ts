@@ -1,7 +1,8 @@
 // «Скачать мои данные» (Ф12 12.B13, docs/PRIVACY.md): everything the system keeps
 // about the signed-in person, as one JSON file — the profile, sign-in methods and
 // sessions, workspaces and positions, the work they authored or were assigned,
-// notifications, AI dialogues and usage, and their own audit-log entries.
+// notifications and their Telegram / email deliveries (ADR-033), AI dialogues and
+// usage, and their own audit-log entries.
 //
 // Only the caller's own data: no other person's texts (comments of colleagues,
 // reports of others) — issues are named by key and title so the file stays
@@ -45,6 +46,7 @@ export async function exportMyData(prisma: PrismaClient, userId: string) {
     audit,
     views,
     drafts,
+    deliveries,
   ] = await Promise.all([
     prisma.user.findUniqueOrThrow({
       where: { id: userId },
@@ -243,6 +245,23 @@ export async function exportMyData(prisma: PrismaClient, userId: string) {
       },
       orderBy: { updated_at: 'desc' },
     }),
+    // What went out to Telegram / email and when — without the texts (they quote
+    // other people's remarks).
+    prisma.notificationDelivery.findMany({
+      where: { user_id: userId },
+      select: {
+        type: true,
+        channel: true,
+        status: true,
+        reason: true,
+        attempts: true,
+        created_at: true,
+        sent_at: true,
+        issue: { select: issueSelect },
+      },
+      orderBy: newest,
+      take: MAX_NOTIFICATIONS,
+    }),
   ]);
 
   return {
@@ -322,6 +341,16 @@ export async function exportMyData(prisma: PrismaClient, userId: string) {
       is_read: n.is_read,
       created_at: n.created_at,
       read_at: n.read_at,
+    })),
+    notification_deliveries: deliveries.map((d) => ({
+      type: d.type,
+      channel: d.channel,
+      status: d.status,
+      reason: d.reason,
+      attempts: d.attempts,
+      issue: d.issue ? keyOf(d.issue) : null,
+      created_at: d.created_at,
+      sent_at: d.sent_at,
     })),
     ai: { conversations, usage: aiUsage },
     saved_views: views.map((v) => ({

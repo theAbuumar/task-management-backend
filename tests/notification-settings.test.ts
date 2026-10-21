@@ -8,11 +8,12 @@
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
-import { routeRecipients } from '../src/lib/deliver.js';
+import { routeRecipients } from '../src/lib/notify/enqueue.js';
 import {
   DEFAULT_NOTIFICATION_PREFS,
   channelFor,
   inQuietHours,
+  quietUntil,
   notificationPrefs,
 } from '../src/lib/notification-prefs.js';
 import type { FastifyInstance } from 'fastify';
@@ -102,7 +103,8 @@ describe('GET/PUT /auth/me/notification-settings', () => {
     expect(res.body).toMatchObject({
       ...DEFAULT_NOTIFICATION_PREFS,
       channels: { telegram: false, email: true },
-      groups: ['assigned', 'review', 'deadlines', 'escalation'],
+      groups: ['assigned', 'review', 'deadlines', 'escalation', 'digest'],
+      is_department_head: false,
     });
     expect((await as(tg).get(settings)).body.channels.telegram).toBe(true);
   });
@@ -118,6 +120,7 @@ describe('GET/PUT /auth/me/notification-settings', () => {
       review: true,
       deadlines: false,
       escalation: true,
+      digest: true,
     });
     expect(res.body.quiet_hours).toEqual({ enabled: true, from: 21, to: 8 });
     expect((await as(web).get(settings)).body.email.deadlines).toBe(false);
@@ -142,8 +145,6 @@ describe('channel rule', () => {
   const ctx = (over: object = {}) => ({
     hasTelegram: true,
     hasEmail: true,
-    now: new Date('2026-10-18T10:00:00Z'),
-    timeZone: 'UTC',
     ...over,
   });
 
@@ -173,9 +174,23 @@ describe('channel rule', () => {
     expect(inQuietHours(quiet, new Date('2026-10-18T08:00:00Z'), 'UTC')).toBe(false);
     const day = notificationPrefs({ quiet_hours: { enabled: true, from: 13, to: 14 } });
     expect(inQuietHours(day, new Date('2026-10-18T13:15:00Z'), 'UTC')).toBe(true);
+    // Quiet hours delay a copy, they do not change its channel (ADR-033).
     expect(channelFor({ quiet_hours: { enabled: true, from: 0, to: 23 } }, 'overdue', ctx())).toBe(
-      null,
+      'telegram',
     );
+  });
+
+  it('a copy waits until the quiet hours end', () => {
+    const quiet = notificationPrefs({ quiet_hours: { enabled: true, from: 22, to: 8 } });
+    // 23:30 in Tashkent → 08:00 next morning there (03:00 UTC).
+    expect(quietUntil(quiet, new Date('2026-10-18T18:30:00Z'), 'Asia/Tashkent')).toEqual(
+      new Date('2026-10-19T03:00:00Z'),
+    );
+    // 06:00 local → 08:00 the same morning.
+    expect(quietUntil(quiet, new Date('2026-10-18T06:00:00Z'), 'UTC')).toEqual(
+      new Date('2026-10-18T08:00:00Z'),
+    );
+    expect(quietUntil(quiet, new Date('2026-10-18T12:00:00Z'), 'UTC')).toBeNull();
   });
 
   it('broken stored values fall back to the defaults', () => {
@@ -192,9 +207,7 @@ describe('delivery follows the settings', () => {
       quiet_hours: { enabled: false },
     });
     await as(tg).put(settings, { telegram: { deadlines: false } });
-    const now = new Date('2026-10-18T10:00:00Z');
-
-    const due = await routeRecipients(app.prisma, [web.id, tg.id], 'due_soon', workspace, now);
+    const due = await routeRecipients(app.prisma, [web.id, tg.id], 'due_soon', workspace);
     expect(due.telegram).toEqual([]);
     expect(due.email.map((e) => e.userId).sort()).toEqual([web.id, tg.id].sort());
 
@@ -203,13 +216,13 @@ describe('delivery follows the settings', () => {
       [web.id, tg.id],
       'review_requested',
       workspace,
-      now,
     );
     expect(review.telegram).toEqual([{ userId: tg.id, chatId: TG_ID }]);
     expect(review.email.map((e) => e.userId)).toEqual([web.id]);
 
+    // Quiet hours keep the channel: the copy is only delayed (ADR-033).
     await as(web).put(settings, { quiet_hours: { enabled: true, from: 9, to: 18 } });
-    const quiet = await routeRecipients(app.prisma, [web.id], 'review_requested', workspace, now);
-    expect(quiet).toEqual({ telegram: [], email: [] });
+    const quiet = await routeRecipients(app.prisma, [web.id], 'review_requested', workspace);
+    expect(quiet.email.map((e) => e.userId)).toEqual([web.id]);
   });
 });

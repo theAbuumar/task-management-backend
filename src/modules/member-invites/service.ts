@@ -101,6 +101,8 @@ export async function inviteExistingUser(
       await sendMemberInviteEmail({
         to: target.email,
         workspaceName: workspace.name,
+        workspace,
+        locale: target.locale === 'en' ? 'en' : 'ru',
         inviterName: inviter.display_name,
         inboxUrl: frontendUrl('/invitations'),
         expiresAt,
