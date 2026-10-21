@@ -269,20 +269,30 @@ export async function sendWorkspaceInvitePrompt(
   });
 }
 
+/** What a code sent through the bot confirms, as the first line of the message. */
+const CODE_ACTION_RU: Record<'delete_account' | 'transfer_ownership', string> = {
+  delete_account: 'Код для безвозвратного удаления аккаунта в системе поручений:',
+  transfer_ownership: 'Код для передачи владения пространством в системе поручений:',
+};
+
 /**
- * Deliver a 6-digit account-deletion code to a Telegram-only account through the bot
- * (the analogue of {@link sendOtpEmail} for accounts with no email). The chat id for a
- * private chat equals the user's telegram id, so we message them directly.
+ * Deliver a 6-digit confirmation code to an account with no email through the bot
+ * (the analogue of {@link sendOtpEmail}). The chat id for a private chat equals the
+ * user's telegram id, so we message them directly.
  */
-export async function sendDeletionCode(chatId: number, code: string): Promise<void> {
+export async function sendCodeViaTelegram(
+  chatId: number,
+  code: string,
+  purpose: keyof typeof CODE_ACTION_RU,
+): Promise<void> {
   await callBotApi('sendMessage', {
     chat_id: chatId,
     text: [
-      'Код для безвозвратного удаления аккаунта в системе поручений:',
+      CODE_ACTION_RU[purpose],
       '',
       `    ${code}`,
       '',
-      'Код действует 10 минут. Если вы не запрашивали удаление, просто проигнорируйте это сообщение.',
+      'Код действует 10 минут. Если вы его не запрашивали, просто проигнорируйте это сообщение.',
     ].join('\n'),
   });
 }

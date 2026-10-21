@@ -10,6 +10,7 @@ import { sendMail } from './mailer.js';
 import type { EmailOtpPurpose } from '@prisma/client';
 import { renderEmail, type EmailWorkspace } from './notify/email-layout.js';
 import { longDate, type Locale } from './notify/texts.js';
+import { frontendUrl } from './urls.js';
 
 const until = (expiresAt: Date, locale: Locale) =>
   locale === 'en'
@@ -95,28 +96,27 @@ export async function sendOtpEmail(
   locale: Locale = 'ru',
 ): Promise<void> {
   const en = locale === 'en';
-  const action =
-    purpose === 'signup'
-      ? en
-        ? 'confirm your email address'
-        : 'подтвердить адрес электронной почты'
-      : purpose === 'delete_account'
-        ? en
-          ? 'permanently delete your account'
-          : 'безвозвратно удалить аккаунт'
-        : en
-          ? 'sign in'
-          : 'войти в систему';
-  // Deletion is destructive, so the "didn't request this" line nudges toward securing
-  // the account rather than a neutral "ignore this email".
-  const footer =
-    purpose === 'delete_account'
-      ? en
-        ? 'The code is valid for 10 minutes. If you did not ask to delete your account, ignore this email and change your password.'
-        : 'Код действует 10 минут. Если вы не запрашивали удаление аккаунта, проигнорируйте это письмо и смените пароль.'
-      : en
-        ? 'The code is valid for 10 minutes. If you did not ask for a code, just ignore this email.'
-        : 'Код действует 10 минут. Если вы не запрашивали код, просто проигнорируйте это письмо.';
+  const ACTIONS: Record<EmailOtpPurpose, [string, string]> = {
+    signup: ['confirm your email address', 'подтвердить адрес электронной почты'],
+    login: ['sign in', 'войти в систему'],
+    delete_account: ['permanently delete your account', 'безвозвратно удалить аккаунт'],
+    set_password: ['set a password for signing in', 'задать пароль для входа'],
+    transfer_ownership: [
+      'hand your workspace over to another member',
+      'передать владение пространством другому сотруднику',
+    ],
+  };
+  const action = ACTIONS[purpose][en ? 0 : 1];
+  // Destructive or account-changing codes nudge toward securing the account rather
+  // than a neutral "ignore this email".
+  const sensitive = purpose !== 'signup' && purpose !== 'login';
+  const footer = sensitive
+    ? en
+      ? 'The code is valid for 10 minutes. If it was not you, ignore this email and end your other sessions in the profile («My sessions»).'
+      : 'Код действует 10 минут. Если это были не вы, проигнорируйте письмо и завершите другие сеансы в профиле («Мои сессии»).'
+    : en
+      ? 'The code is valid for 10 minutes. If you did not ask for a code, just ignore this email.'
+      : 'Код действует 10 минут. Если вы не запрашивали код, просто проигнорируйте это письмо.';
   const letter = renderEmail({
     locale,
     heading: en ? `Use this code to ${action}` : `Используйте этот код, чтобы ${action}`,
@@ -128,4 +128,43 @@ export async function sendOtpEmail(
     subject: en ? `Verification code: ${code}` : `Код подтверждения: ${code}`,
     ...letter,
   });
+}
+
+/**
+ * «Пароль изменён» (12.B12): a password was set or changed. Sent every time, so the
+ * owner of the inbox learns of a change they did not make; other sessions are already
+ * ended by then.
+ */
+export async function sendPasswordChangedEmail(
+  to: string,
+  changedAt: Date,
+  locale: Locale = 'ru',
+  timeZone = 'UTC',
+): Promise<void> {
+  const en = locale === 'en';
+  const when = new Intl.DateTimeFormat(en ? 'en-GB' : 'ru-RU', {
+    dateStyle: 'long',
+    timeStyle: 'short',
+    timeZone,
+  }).format(changedAt);
+  const heading = en ? 'Your password was changed' : 'Пароль для входа изменён';
+  const letter = renderEmail({
+    locale,
+    heading,
+    paragraphs: [
+      en
+        ? `The password for signing in to the assignment system was set on ${when}. Your other sessions have been ended.`
+        : `Пароль для входа в систему поручений задан ${when}. Другие сеансы входа завершены.`,
+    ],
+    button: {
+      label: en ? 'Open the profile' : 'Открыть профиль',
+      url: frontendUrl('profile#password'),
+    },
+    footer: [
+      en
+        ? 'If it was not you, sign in with a code sent to this email and set a new password in the profile.'
+        : 'Если это были не вы, войдите по коду из письма на этот адрес и задайте новый пароль в профиле.',
+    ],
+  });
+  await sendMail({ to, subject: heading, ...letter });
 }

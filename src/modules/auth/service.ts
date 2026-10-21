@@ -15,14 +15,19 @@ import { assertUploadedImage, dropReplacedImage } from '../../lib/media.js';
 import type { StorageDriver } from '../../lib/storage.js';
 import { acceptInviteAfterRegister } from '../invites/service.js';
 import { respondToInviteViaTelegram } from '../member-invites/service.js';
-import { issueOtp, verifyOtp, type OtpTarget } from './otp.service.js';
+import { issueOtp, verifyOtp } from './otp.service.js';
+import { sendAccountCode, verifyAccountCode, type CodeChallenge } from './account-code.js';
+import {
+  assertPasswordNotLocked,
+  clearPasswordFailures,
+  recordPasswordFailure,
+} from './password.service.js';
 import { findOrCreateFromProvider, type ProviderProfile } from './identity.service.js';
 import { initLoginToken, confirmLoginToken, consumeLoginToken } from './telegram-login.service.js';
 import {
   buildTelegramDeepLink,
   sendConfirmPrompt,
   sendBotMessage,
-  sendDeletionCode,
   answerCallbackQuery,
   CONFIRM_CALLBACK_PREFIX,
   WS_INVITE_ACCEPT_PREFIX,
@@ -39,7 +44,9 @@ import type {
   EmailOtpRequestBody,
   EmailOtpVerifyBody,
   AccountDeleteConfirmBody,
+  LdapLoginBody,
 } from './schema.js';
+import { authenticateWithDirectory } from './ldap.service.js';
 
 export interface AuthTokens {
   access_token: string;
@@ -47,11 +54,17 @@ export interface AuthTokens {
   user: SafeUser;
 }
 
-export type SafeUser = Omit<User, 'password_hash'>;
+/** A user as the API shows it: no hash or lock counters, but whether a password is set. */
+export type SafeUser = Omit<
+  User,
+  'password_hash' | 'password_failures' | 'password_locked_until'
+> & {
+  has_password: boolean;
+};
 
 function stripHash(user: User): SafeUser {
-  const { password_hash: _ph, ...safe } = user;
-  return safe;
+  const { password_hash, password_failures: _pf, password_locked_until: _pl, ...safe } = user;
+  return { ...safe, has_password: password_hash !== null };
 }
 
 /** How long a just-rotated refresh token may be replayed without being treated as theft. */
@@ -95,6 +108,16 @@ export async function register(prisma: PrismaClient, body: RegisterBody): Promis
   return issueTokenPair(prisma, user);
 }
 
+/**
+ * A hash to verify against when there is no account or no password, so a miss costs
+ * the same argon2 time as a wrong password (no account enumeration by timing).
+ */
+let timingHash: Promise<string> | null = null;
+function equaliserHash(): Promise<string> {
+  timingHash ??= hashSecret('timing-equaliser-not-a-password');
+  return timingHash;
+}
+
 export async function login(prisma: PrismaClient, body: LoginBody): Promise<AuthTokens> {
   const user = await prisma.user.findUnique({ where: { email: body.email } });
 
@@ -107,14 +130,16 @@ export async function login(prisma: PrismaClient, body: LoginBody): Promise<Auth
       'This account has no password. Sign in with Google or GitHub, or set a password first.',
     );
   }
+  // A run of wrong passwords pauses password sign-in for this account (12.B12).
+  if (user) assertPasswordNotLocked(user);
 
   // Constant-time check on miss prevents timing-based account enumeration.
-  const valid =
-    user !== null &&
-    user.password_hash !== null &&
-    (await verifySecret(user.password_hash, body.password));
+  const valid = user?.password_hash
+    ? await verifySecret(user.password_hash, body.password)
+    : (await verifySecret(await equaliserHash(), body.password)) && false;
 
   if (!user || !valid) {
+    if (user) await recordPasswordFailure(prisma, user);
     throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid email or password');
   }
   if (!user.is_active) {
@@ -130,6 +155,7 @@ export async function login(prisma: PrismaClient, body: LoginBody): Promise<Auth
     throw new AppError(403, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated');
   }
 
+  await clearPasswordFailures(prisma, user);
   return issueTokenPair(prisma, user);
 }
 
@@ -265,12 +291,7 @@ export async function emailOtpVerify(
 // ─── Code-confirmed account deletion ────────────────────────────────────────────
 
 /** The channel a deletion code was delivered on. */
-export interface DeleteChallenge {
-  status: 'otp_sent';
-  channel: 'email' | 'telegram';
-  /** Present only for the email channel (the address the code was sent to). */
-  email?: string;
-}
+export type DeleteChallenge = CodeChallenge;
 
 /**
  * Step 1 of deletion: send the logged-in user a 6-digit confirmation code, regardless
@@ -285,31 +306,7 @@ export async function requestAccountDeletion(
 ): Promise<DeleteChallenge> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw AppError.notFound('User not found');
-
-  // Email accounts (incl. Google/GitHub with an email) get the code by email.
-  if (user.email) {
-    const code = await issueOtp(prisma, { email: user.email }, 'delete_account');
-    await sendOtpEmail(user.email, code, 'delete_account', user.locale === 'en' ? 'en' : 'ru');
-    return { status: 'otp_sent', channel: 'email', email: user.email };
-  }
-
-  // No email: deliver the code through the Telegram bot if the account is linked to it.
-  // The code is keyed by user id (there's no address), and the bot chat id equals the
-  // linked telegram id.
-  const telegram = await prisma.authIdentity.findFirst({
-    where: { user_id: userId, provider: 'telegram' },
-  });
-  if (telegram?.provider_user_id) {
-    const code = await issueOtp(prisma, { userId }, 'delete_account');
-    await sendDeletionCode(Number(telegram.provider_user_id), code);
-    return { status: 'otp_sent', channel: 'telegram' };
-  }
-
-  // Neither channel exists (e.g. a GitHub account with a private email and nothing
-  // else linked) — nowhere to send a code to.
-  throw AppError.badRequest(
-    'This account has no email or Telegram to send a deletion code to. Link an email or Telegram sign-in method first, then try again.',
-  );
+  return sendAccountCode(prisma, user, 'delete_account');
 }
 
 /**
@@ -333,8 +330,7 @@ export async function confirmAccountDeletion(
 
   // Verify against the same target the code was issued for: email if present,
   // otherwise the user-keyed code sent over Telegram.
-  const target: OtpTarget = user.email ? { email: user.email } : { userId };
-  await verifyOtp(prisma, target, 'delete_account', body.code);
+  await verifyAccountCode(prisma, user, 'delete_account', body.code);
 
   await prisma.$transaction(async (tx) => {
     await reassignOwnedWorkspaces(tx, userId);
@@ -392,6 +388,15 @@ export async function loginWithProvider(
 ): Promise<AuthTokens> {
   const user = await findOrCreateFromProvider(prisma, profile);
   return issueTokenPair(prisma, user);
+}
+
+/** University account (12.B10): the directory checks the password, then as any provider. */
+export async function loginWithLdap(
+  prisma: PrismaClient,
+  body: LdapLoginBody,
+): Promise<AuthTokens> {
+  const profile = await authenticateWithDirectory(body.login, body.password);
+  return loginWithProvider(prisma, profile);
 }
 
 // ─── Connected-accounts management (auth_tz.md §10) ─────────────────────────────

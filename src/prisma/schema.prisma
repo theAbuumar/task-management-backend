@@ -155,6 +155,9 @@ enum AuthProvider {
   google
   github
   telegram
+  // University directory (LDAP / Active Directory, 12.B10): `provider_user_id` is
+  // the entry's stable id (objectGUID / entryUUID), `provider_email` its mail.
+  ldap
 }
 
 // What an email OTP is being used for.
@@ -162,6 +165,10 @@ enum EmailOtpPurpose {
   signup
   login
   delete_account
+  // Ф12: setting a password from the profile (12.B12) and handing a workspace
+  // over to another member (12.B3) are confirmed by a code too.
+  set_password
+  transfer_ownership
 }
 
 // Lifecycle of a Telegram deep-link login token.
@@ -183,12 +190,17 @@ enum MemberInviteStatus {
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model User {
-  id                    String   @id @default(uuid())
+  id                    String    @id @default(uuid())
   // Nullable: Telegram-only accounts have no email (auth_tz.md §2). Still unique when present.
-  email                 String?  @unique
-  email_verified        Boolean  @default(false)
+  email                 String?   @unique
+  email_verified        Boolean   @default(false)
   // Nullable: accounts created via OAuth/Telegram have no password until they set one.
   password_hash         String?
+  // 12.B12: when the password was last set (shown in the profile) and the lock after
+  // a run of wrong passwords — sign-in by code / Telegram / Google stays open.
+  password_changed_at   DateTime?
+  password_failures     Int       @default(0)
+  password_locked_until DateTime?
   display_name          String
   // Full name, Russian order (Фамилия Имя Отчество). Optional for accounts created
   // before Ф3 / via providers; display_name stays the rendered name.
@@ -196,15 +208,15 @@ model User {
   first_name            String?
   middle_name           String?
   phone                 String?
-  locale                String   @default("ru")
+  locale                String    @default("ru")
   timezone              String?
   avatar_url            String?
   // Ф8 8.B2: which events go to Telegram / email and quiet hours; null = defaults
   // (src/lib/notification-prefs.ts). In-app notifications are always on.
   notification_settings Json?
-  is_active             Boolean  @default(true)
-  created_at            DateTime @default(now())
-  updated_at            DateTime @updatedAt
+  is_active             Boolean   @default(true)
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
 
   headed_departments        Department[]            @relation("DepartmentHead")
   controlled_issues         Issue[]                 @relation("IssueController")

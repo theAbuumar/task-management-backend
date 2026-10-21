@@ -1,6 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import * as workspaceService from './service.js';
 import * as accessService from './access.service.js';
+import * as ownershipService from './ownership.service.js';
 import { writeAudit } from '../../lib/audit.js';
 import * as memberInviteService from '../member-invites/service.js';
 import { InviteExistingUserBodySchema } from '../member-invites/schema.js';
@@ -12,6 +13,7 @@ import {
   ListMembersQuerySchema,
   InviteMemberBodySchema,
   MemberIdentityParamsSchema,
+  TransferOwnershipBodySchema,
 } from './schema.js';
 
 export async function listWorkspacesHandler(
@@ -239,4 +241,32 @@ export async function resetMemberIdentityHandler(
     request,
   );
   reply.code(204).send();
+}
+
+// ─── Ownership transfer (12.B3) ───────────────────────────────────────────────
+
+export async function transferOwnershipCodeHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const result = await ownershipService.requestOwnershipTransfer(
+    request.server.prisma,
+    request.workspace.id,
+    request.userId,
+  );
+  reply.send(result);
+}
+
+export async function transferOwnershipHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const body = TransferOwnershipBodySchema.parse(request.body);
+  const result = await ownershipService.transferOwnership(
+    request.server.prisma,
+    request.workspace.id,
+    request.userId,
+    body,
+  );
+  reply.send(result);
 }

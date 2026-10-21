@@ -17,6 +17,8 @@ import {
   deactivateMemberSchema,
   activateMemberSchema,
   resetMemberIdentitySchema,
+  transferOwnershipCodeSchema,
+  transferOwnershipSchema,
 } from './schema.js';
 import { inviteExistingUserSchema } from '../member-invites/schema.js';
 import {
@@ -36,7 +38,12 @@ import {
   deactivateMemberHandler,
   activateMemberHandler,
   resetMemberIdentityHandler,
+  transferOwnershipCodeHandler,
+  transferOwnershipHandler,
 } from './controller.js';
+
+// Confirmation codes and the transfer itself: per-IP backstop like the auth routes.
+const ownershipRateLimit = { rateLimit: { max: 30, timeWindow: '1 minute' } };
 
 export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
   // Collection routes (no workspace scope yet — just need auth)
@@ -73,6 +80,29 @@ export async function workspaceRoutes(app: FastifyInstance): Promise<void> {
       config: { audit: { action: 'workspace.deleted', target: 'workspace' } },
     },
     deleteWorkspaceHandler,
+  );
+
+  // Hand the workspace over to another member (12.B3, ADR-034): code, then transfer.
+  app.post(
+    '/:workspaceSlug/transfer-ownership/code',
+    {
+      schema: transferOwnershipCodeSchema,
+      preHandler: [authenticate, requireWorkspaceMember('owner')],
+      config: ownershipRateLimit,
+    },
+    transferOwnershipCodeHandler,
+  );
+  app.post(
+    '/:workspaceSlug/transfer-ownership',
+    {
+      schema: transferOwnershipSchema,
+      preHandler: [authenticate, requireWorkspaceMember('owner')],
+      config: {
+        ...ownershipRateLimit,
+        audit: { action: 'workspace.ownership_transferred', target: 'user', bodyField: 'user_id' },
+      },
+    },
+    transferOwnershipHandler,
   );
 
   // Any member (except the owner) may leave on their own.

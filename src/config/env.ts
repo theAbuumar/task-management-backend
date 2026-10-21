@@ -116,6 +116,41 @@ export const envSchema = z
      * header so only Telegram can post updates. Optional in dev/test.
      */
     TELEGRAM_WEBHOOK_SECRET: z.string().min(1).optional(),
+    /** Bot updates (messages, taps) one Telegram user may send per minute (12.T1). */
+    TELEGRAM_RATE_LIMIT: z.coerce.number().int().min(1).max(100000).default(30),
+
+    // --- University directory: LDAP / Active Directory (12.B10, ADR-034) --- off unless set
+    /** `ldap://dc.university.local` or `ldaps://…:636`. Unset — no «University account» sign-in. */
+    LDAP_URL: z
+      .string()
+      .regex(/^ldaps?:\/\/.+/, 'must start with ldap:// or ldaps://')
+      .optional(),
+    /** Service account that looks people up (read-only); unset — anonymous search. */
+    LDAP_BIND_DN: z.string().min(1).optional(),
+    LDAP_BIND_PASSWORD: z.string().min(1).optional(),
+    /** Where people are: `OU=Staff,DC=university,DC=local`. Required with LDAP_URL. */
+    LDAP_SEARCH_BASE: z.string().min(1).optional(),
+    /**
+     * How a login maps to an entry; `{{login}}` is replaced (escaped). Default fits
+     * Active Directory: sAMAccountName, userPrincipalName or mail.
+     */
+    LDAP_SEARCH_FILTER: z
+      .string()
+      .min(1)
+      .default('(|(sAMAccountName={{login}})(userPrincipalName={{login}})(mail={{login}}))'),
+    /** Stable entry id: objectGUID (AD), entryUUID (OpenLDAP) or any unique attribute. */
+    LDAP_ID_ATTRIBUTE: z.string().min(1).default('objectGUID'),
+    /** What the login page calls it. */
+    LDAP_LABEL: z.string().min(1).max(60).default('Учётная запись университета'),
+    /** Hint under the login field, e.g. «Логин как в компьютерных классах». */
+    LDAP_LOGIN_HINT: z.string().max(120).optional(),
+    /** Reject an ldaps:// certificate the server cannot verify (keep true in production). */
+    LDAP_TLS_REJECT_UNAUTHORIZED: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((v) => v === 'true'),
+    /** Connect + operation timeout, milliseconds. */
+    LDAP_TIMEOUT_MS: z.coerce.number().int().min(500).max(60000).default(5000),
 
     // --- AI assistant (Ф11, ADR-016, ADR-028) --- off unless the owner turns it on
     AI_ENABLED: z
@@ -187,6 +222,20 @@ export const envSchema = z
       .transform((v) => v === 'true'),
   })
   .superRefine((env, ctx) => {
+    if (env.LDAP_URL && !env.LDAP_SEARCH_BASE) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['LDAP_SEARCH_BASE'],
+        message: 'LDAP_SEARCH_BASE is required when LDAP_URL is set',
+      });
+    }
+    if (Boolean(env.LDAP_BIND_DN) !== Boolean(env.LDAP_BIND_PASSWORD)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['LDAP_BIND_PASSWORD'],
+        message: 'LDAP_BIND_DN and LDAP_BIND_PASSWORD go together',
+      });
+    }
     if (env.AI_ENABLED && !env.AI_API_KEY) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

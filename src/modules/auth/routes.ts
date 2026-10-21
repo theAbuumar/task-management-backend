@@ -30,6 +30,10 @@ import {
   listSessionsRouteSchema,
   revokeSessionRouteSchema,
   revokeOtherSessionsRouteSchema,
+  passwordCodeRouteSchema,
+  passwordSetRouteSchema,
+  passwordChangeRouteSchema,
+  ldapLoginRouteSchema,
 } from './schema.js';
 import {
   registerHandler,
@@ -58,6 +62,10 @@ import {
   listSessionsHandler,
   revokeSessionHandler,
   revokeOtherSessionsHandler,
+  passwordCodeHandler,
+  passwordSetHandler,
+  passwordChangeHandler,
+  ldapLoginHandler,
 } from './controller.js';
 
 // Per-IP rate limit for the sensitive auth endpoints — credential submission and
@@ -100,6 +108,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     '/email/otp/verify',
     { schema: emailOtpVerifyRouteSchema, config: authRateLimit },
     emailOtpVerifyHandler,
+  );
+  // University account: LDAP / Active Directory (12.B10), only with LDAP_URL set.
+  app.post(
+    '/ldap/login',
+    { schema: ldapLoginRouteSchema, config: authRateLimit },
+    ldapLoginHandler,
   );
   // Google OAuth 2.0 (auth_tz.md §3).
   app.get('/google', { schema: googleRedirectRouteSchema }, googleRedirectHandler);
@@ -170,6 +184,28 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     '/sessions/:id',
     { schema: revokeSessionRouteSchema, preHandler: [authenticate] },
     revokeSessionHandler,
+  );
+  // A password as an additional sign-in method (12.B12): set by a code, change with
+  // the current one.
+  app.post(
+    '/password/code',
+    {
+      schema: passwordCodeRouteSchema,
+      preHandler: [authenticate],
+      preValidation: bodyOptional,
+      config: authRateLimit,
+    },
+    passwordCodeHandler,
+  );
+  app.post(
+    '/password/set',
+    { schema: passwordSetRouteSchema, preHandler: [authenticate], config: authRateLimit },
+    passwordSetHandler,
+  );
+  app.post(
+    '/password/change',
+    { schema: passwordChangeRouteSchema, preHandler: [authenticate], config: authRateLimit },
+    passwordChangeHandler,
   );
   app.get('/me', { schema: getMeRouteSchema, preHandler: [authenticate] }, getMeHandler);
   app.patch('/me', { schema: updateMeRouteSchema, preHandler: [authenticate] }, updateMeHandler);

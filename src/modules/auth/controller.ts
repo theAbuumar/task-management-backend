@@ -2,6 +2,8 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { auditLogin, writeAudit } from '../../lib/audit.js';
 import { verifyRefreshToken } from '../../lib/jwt.js';
 import * as authService from './service.js';
+import * as passwordService from './password.service.js';
+import { guardBotUpdate } from '../telegram/guard.js';
 import { buildGoogleAuthUrl, exchangeGoogleCode } from './google.service.js';
 import { buildGithubAuthUrl, exchangeGithubCode } from './github.service.js';
 import { config } from '../../config/index.js';
@@ -42,6 +44,10 @@ import {
   EmailOtpRequestBodySchema,
   EmailOtpVerifyBodySchema,
   AccountDeleteConfirmBodySchema,
+  PasswordCodeBodySchema,
+  PasswordSetBodySchema,
+  PasswordChangeBodySchema,
+  LdapLoginBodySchema,
   GoogleCallbackQuerySchema,
   GithubCallbackQuerySchema,
   TelegramStatusQuerySchema,
@@ -187,10 +193,119 @@ export async function registerHandler(request: FastifyRequest, reply: FastifyRep
   reply.code(201).send(result);
 }
 
+/**
+ * The wrong password that locked password sign-in (12.B12) goes to the audit log —
+ * as the account's own entry, so the admins of its workspaces see it.
+ */
+async function auditPasswordLock(
+  request: FastifyRequest,
+  err: unknown,
+  userId: string | null,
+): Promise<void> {
+  if (!(err instanceof AppError) || err.code !== 'PASSWORD_LOCKED') return;
+  if (!(err.details as { just_locked?: boolean } | undefined)?.just_locked || !userId) return;
+  await writeAudit(
+    request.server.prisma,
+    { actor_id: userId, action: 'auth.password_locked', target_type: 'user', target_id: userId },
+    request,
+  );
+}
+
 export async function loginHandler(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const body = LoginBodySchema.parse(request.body);
-  const result = await authService.login(request.server.prisma, body);
+  let result: authService.AuthTokens;
+  try {
+    result = await authService.login(request.server.prisma, body);
+  } catch (err) {
+    if (err instanceof AppError && err.code === 'PASSWORD_LOCKED') {
+      const user = await request.server.prisma.user.findUnique({
+        where: { email: body.email },
+        select: { id: true },
+      });
+      await auditPasswordLock(request, err, user?.id ?? null);
+    }
+    throw err;
+  }
   await beginSession(request, reply, result, 'password');
+  reply.send(result);
+}
+
+/** University account (12.B10): login + password checked by LDAP / Active Directory. */
+export async function ldapLoginHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const body = LdapLoginBodySchema.parse(request.body);
+  const result = await authService.loginWithLdap(request.server.prisma, body);
+  await beginSession(request, reply, result, 'ldap');
+  reply.send(result);
+}
+
+// ─── A password from the profile (12.B12) ─────────────────────────────────────
+
+export async function passwordCodeHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const { password } = PasswordCodeBodySchema.parse(request.body ?? {});
+  reply.send(
+    await passwordService.requestPasswordCode(request.server.prisma, request.userId, password),
+  );
+}
+
+export async function passwordSetHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const body = PasswordSetBodySchema.parse(request.body);
+  const result = await passwordService.setPassword(
+    request.server.prisma,
+    request.userId,
+    request.sessionId,
+    body,
+  );
+  await writeAudit(
+    request.server.prisma,
+    {
+      actor_id: request.userId,
+      action: 'auth.password_set',
+      target_type: 'user',
+      target_id: request.userId,
+      meta: { signed_out_sessions: result.signed_out_sessions },
+    },
+    request,
+  );
+  reply.send(result);
+}
+
+export async function passwordChangeHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const body = PasswordChangeBodySchema.parse(request.body);
+  let result: passwordService.PasswordResult;
+  try {
+    result = await passwordService.changePassword(
+      request.server.prisma,
+      request.userId,
+      request.sessionId,
+      body,
+    );
+  } catch (err) {
+    await auditPasswordLock(request, err, request.userId);
+    throw err;
+  }
+  await writeAudit(
+    request.server.prisma,
+    {
+      actor_id: request.userId,
+      action: 'auth.password_changed',
+      target_type: 'user',
+      target_id: request.userId,
+      meta: { signed_out_sessions: result.signed_out_sessions },
+    },
+    request,
+  );
   reply.send(result);
 }
 
@@ -361,8 +476,11 @@ export async function telegramWebhookHandler(
   }
 
   const update = TelegramUpdateSchema.parse(request.body ?? {});
-  await authService.handleTelegramUpdate(request.server.prisma, request.server.storage, update);
-  // Telegram only needs a 200; any per-update failure is reported to the user in-chat.
+  // Per-person limit, a failure reported in the chat with a code, a log line without
+  // personal data (12.T1). Telegram only needs a 200 — an error would make it resend.
+  await guardBotUpdate(request, update, () =>
+    authService.handleTelegramUpdate(request.server.prisma, request.server.storage, update),
+  );
   reply.send({ ok: true });
 }
 

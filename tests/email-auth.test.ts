@@ -133,5 +133,8 @@ describe('email OTP signup + verify', () => {
       .send({ email: emails.rate, password: PASSWORD, display_name: 'Rate Limited' });
     expect(second.status).toBe(429);
     expect(second.body.error.code).toBe('RATE_LIMITED');
+    // The site tells when to ask again (12.F6).
+    expect(second.body.error.details.retry_after).toBeGreaterThan(50);
+    expect(second.body.error.details.retry_after).toBeLessThanOrEqual(60);
   });
 });

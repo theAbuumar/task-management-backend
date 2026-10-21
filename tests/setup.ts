@@ -27,3 +27,5 @@ process.env.TELEGRAM_BOT_USERNAME ??= 'test_task_bot';
 // themselves are tested in tests/rate-limits.test.ts with low values.
 process.env.RATE_LIMIT_WRITES ??= '100000';
 process.env.RATE_LIMIT_EXPORTS ??= '100000';
+// The same for bot updates per Telegram user (12.T1, tests/telegram-guard.test.ts).
+process.env.TELEGRAM_RATE_LIMIT ??= '100000';

@@ -1,6 +1,6 @@
 // Find-or-create across login providers (auth_tz.md §1, §3–§5, §7).
 //
-// The single place that turns a provider profile (Google/GitHub/Telegram) into a
+// The single place that turns a provider profile (Google/GitHub/Telegram/LDAP) into a
 // local account. Order of resolution:
 //   1. Match an existing identity by (provider, provider_user_id) → return its user.
 //   2. Else, if the provider gave a VERIFIED email that matches an existing account,
@@ -13,9 +13,9 @@
 import type { PrismaClient, User, AuthProvider } from '@prisma/client';
 
 export interface ProviderProfile {
-  /** One of the OAuth/Telegram providers (not `email`). */
-  provider: Extract<AuthProvider, 'google' | 'github' | 'telegram'>;
-  /** Stable provider id: Google `sub`, GitHub numeric id, Telegram id. */
+  /** One of the OAuth/Telegram providers or the university directory (not `email`). */
+  provider: Extract<AuthProvider, 'google' | 'github' | 'telegram' | 'ldap'>;
+  /** Stable provider id: Google `sub`, GitHub numeric id, Telegram id, directory entry id. */
   provider_user_id: string;
   /** Provider-supplied email, if any (Telegram accounts have none). */
   email?: string | null;
@@ -23,6 +23,10 @@ export interface ProviderProfile {
   email_verified?: boolean;
   display_name?: string | null;
   avatar_url?: string | null;
+  /** Full name parts (the university directory has them) — set on a new account only. */
+  last_name?: string | null;
+  first_name?: string | null;
+  middle_name?: string | null;
 }
 
 function deriveDisplayName(profile: ProviderProfile): string {
@@ -101,6 +105,9 @@ export async function findOrCreateFromProvider(
         email_verified: profile.email_verified ?? false,
         display_name: deriveDisplayName(profile),
         avatar_url: profile.avatar_url ?? null,
+        last_name: profile.last_name ?? null,
+        first_name: profile.first_name ?? null,
+        middle_name: profile.middle_name ?? null,
         identities: {
           create: {
             provider: profile.provider,

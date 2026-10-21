@@ -94,6 +94,13 @@ export const InviteMemberBodySchema = z.object({
   middle_name: nameField,
 });
 
+// Hand the workspace over (12.B3): the new owner and the code the owner received.
+export const TransferOwnershipBodySchema = z.object({
+  user_id: z.string().uuid(),
+  code: z.string().regex(/^\d{6}$/, 'The code is 6 digits'),
+});
+
+export type TransferOwnershipBody = z.infer<typeof TransferOwnershipBodySchema>;
 export type ListMembersQuery = z.infer<typeof ListMembersQuerySchema>;
 export type CreateWorkspaceBody = z.infer<typeof CreateWorkspaceBodySchema>;
 export type UpdateWorkspaceBody = z.infer<typeof UpdateWorkspaceBodySchema>;
@@ -440,4 +447,63 @@ export const resetMemberIdentitySchema: FastifySchema = {
     },
   },
   response: { 204: { type: 'null' } },
+};
+
+// ─── Ownership transfer (12.B3, ADR-034) ──────────────────────────────────────
+
+const slugParams = {
+  type: 'object',
+  properties: { workspaceSlug: { type: 'string' } },
+} as const;
+
+export const transferOwnershipCodeSchema: FastifySchema = {
+  tags: ['Workspaces'],
+  summary: 'Send the owner a code to confirm an ownership transfer (owner only)',
+  description:
+    'Step 1 of handing the workspace over. A 6-digit code (`transfer_ownership`, valid 10 minutes) goes to the ' +
+    'owner’s email, or through the Telegram bot for an account without one; `channel` says which. ' +
+    '403 `NOT_OWNER` for anyone else; 400 `NO_CODE_CHANNEL` when the account has neither; 429 when a code was sent less than a minute ago.',
+  security,
+  params: slugParams,
+  response: {
+    200: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['otp_sent'] },
+        channel: { type: 'string', enum: ['email', 'telegram'] },
+        email: { type: 'string' },
+      },
+    },
+  },
+};
+
+export const transferOwnershipSchema: FastifySchema = {
+  tags: ['Workspaces'],
+  summary: 'Hand the workspace over to another member (owner only, code-confirmed)',
+  description:
+    'Step 2. The new owner must be an active member who is not a guest (400 `NEW_OWNER_INVALID`, ' +
+    '`details.reason`: `already_owner`, `not_member`, `deactivated`, `guest` — checked before the code, so a wrong choice does not use it up). ' +
+    'Then the code: `OTP_INVALID`, `OTP_EXPIRED`, `OTP_TOO_MANY_ATTEMPTS`, `OTP_NOT_FOUND`. ' +
+    'In one transaction the workspace gets the new `owner_id`, the new owner the role `owner`, the former owner the role `admin` — ' +
+    'they may leave afterwards. Written to the audit log as `workspace.ownership_transferred`.',
+  security,
+  params: slugParams,
+  body: {
+    type: 'object',
+    required: ['user_id', 'code'],
+    properties: {
+      user_id: { type: 'string', format: 'uuid' },
+      code: { type: 'string', pattern: '^\\d{6}$' },
+    },
+  },
+  response: {
+    200: {
+      type: 'object',
+      properties: {
+        workspace: workspaceShape,
+        previous_owner: memberShape,
+        new_owner: memberShape,
+      },
+    },
+  },
 };

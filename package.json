@@ -23,7 +23,8 @@
     "telegram:set-webhook": "tsx src/scripts/set-telegram-webhook.ts",
     "demo:seed": "tsx src/prisma/seed-demo.ts",
     "demo:reset": "tsx src/prisma/seed-demo.ts",
-    "perf:10k": "tsx src/scripts/perf-10k.ts"
+    "perf:10k": "tsx src/scripts/perf-10k.ts",
+    "perf:load": "tsx src/scripts/load-test.ts"
   },
   "prisma": {
     "schema": "src/prisma/schema.prisma",
@@ -46,6 +47,7 @@
     "fastify": "^5.1.0",
     "fastify-plugin": "^5.0.1",
     "jsonwebtoken": "^9.0.3",
+    "ldapts": "^8.2.0",
     "mammoth": "^1.13.0",
     "nodemailer": "^9.0.3",
     "pdfmake": "^0.2.23",
@@ -55,14 +57,18 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",
+    "@types/autocannon": "^7.12.7",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/ldapjs": "^3.0.6",
     "@types/node": "^22.9.0",
     "@types/nodemailer": "^8.0.1",
     "@types/pdfmake": "^0.2.13",
     "@types/pg": "^8.23.1",
     "@types/supertest": "^6.0.2",
+    "autocannon": "^8.0.0",
     "eslint": "^9.15.0",
     "eslint-config-prettier": "^9.1.0",
+    "ldapjs": "^3.0.7",
     "pino-pretty": "^13.0.0",
     "prettier": "^3.3.3",
     "prisma": "^5.22.0",

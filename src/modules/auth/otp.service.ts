@@ -55,7 +55,11 @@ async function enforceSendRateLimit(prisma: PrismaClient, target: OtpTarget): Pr
     orderBy: { created_at: 'desc' },
   });
   if (mostRecent && now - mostRecent.created_at.getTime() < RATE_MIN_INTERVAL_MS) {
-    throw AppError.rateLimited('Please wait a minute before requesting another code.');
+    // When to ask again, as the per-person limits say it (12.B5): the site shows it.
+    const retry = Math.ceil((mostRecent.created_at.getTime() + RATE_MIN_INTERVAL_MS - now) / 1000);
+    throw AppError.rateLimited('Please wait a minute before requesting another code.', {
+      retry_after: Math.max(1, retry),
+    });
   }
 
   const recentCount = await prisma.emailOtp.count({

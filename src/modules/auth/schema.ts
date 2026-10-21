@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifySchema } from 'fastify';
-import { PASSWORD_MIN_LENGTH, passwordSchema } from '../../lib/password.js';
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, passwordSchema } from '../../lib/password.js';
 
 // ─── Zod validators ──────────────────────────────────────────────────────────
 
@@ -92,6 +92,23 @@ export const AccountDeleteConfirmBodySchema = z.object({
   code: z.string().regex(/^\d{6}$/, 'Code must be 6 digits'),
 });
 
+// A password from the profile (12.B12): set by a code to the email, or change with
+// the current one. The policy itself (with the person's email and name) is checked
+// in the service — 400 WEAK_PASSWORD with `details.reasons`.
+export const PasswordCodeBodySchema = z.object({
+  password: z.string().min(1).max(PASSWORD_MAX_LENGTH).optional(),
+});
+
+export const PasswordSetBodySchema = z.object({
+  code: z.string().regex(/^\d{6}$/, 'Code must be 6 digits'),
+  password: z.string().min(1).max(PASSWORD_MAX_LENGTH),
+});
+
+export const PasswordChangeBodySchema = z.object({
+  current_password: z.string().min(1).max(PASSWORD_MAX_LENGTH),
+  password: z.string().min(1).max(PASSWORD_MAX_LENGTH),
+});
+
 // Google OAuth callback query params. All optional: Google sends `code` + `state`
 // on success, or `error` (e.g. `access_denied`) when the user declines consent.
 export const GoogleCallbackQuerySchema = z.object({
@@ -168,7 +185,14 @@ export const LinkStartParamsSchema = z.object({
   provider: z.enum(['google', 'github']),
 });
 export const UnlinkIdentityParamsSchema = z.object({
-  provider: z.enum(['email', 'google', 'github', 'telegram']),
+  provider: z.enum(['email', 'google', 'github', 'telegram', 'ldap']),
+});
+
+// University account (12.B10): the directory login (sAMAccountName, UPN or mail) and
+// its password, checked by the directory and never stored.
+export const LdapLoginBodySchema = z.object({
+  login: z.string().trim().min(1).max(256),
+  password: z.string().min(1).max(256),
 });
 
 // Proof that the caller controls the identity being linked: an OAuth authorization
@@ -188,6 +212,8 @@ export type EmailVerifyBody = z.infer<typeof EmailVerifyBodySchema>;
 export type EmailOtpRequestBody = z.infer<typeof EmailOtpRequestBodySchema>;
 export type EmailOtpVerifyBody = z.infer<typeof EmailOtpVerifyBodySchema>;
 export type AccountDeleteConfirmBody = z.infer<typeof AccountDeleteConfirmBodySchema>;
+export type PasswordSetBody = z.infer<typeof PasswordSetBodySchema>;
+export type PasswordChangeBody = z.infer<typeof PasswordChangeBodySchema>;
 export type GoogleCallbackQuery = z.infer<typeof GoogleCallbackQuerySchema>;
 export type GithubCallbackQuery = z.infer<typeof GithubCallbackQuerySchema>;
 export type TelegramStatusQuery = z.infer<typeof TelegramStatusQuerySchema>;
@@ -195,6 +221,7 @@ export type LinkIdentityParams = z.infer<typeof LinkIdentityParamsSchema>;
 export const SessionParamsSchema = z.object({ id: z.string().uuid() });
 
 export type UnlinkIdentityParams = z.infer<typeof UnlinkIdentityParamsSchema>;
+export type LdapLoginBody = z.infer<typeof LdapLoginBodySchema>;
 export type LinkIdentityBody = z.infer<typeof LinkIdentityBodySchema>;
 
 // ─── Fastify route schemas (for OpenAPI + request validation) ─────────────────
@@ -214,6 +241,9 @@ const userShape = {
     timezone: { type: 'string', nullable: true },
     avatar_url: { type: 'string', nullable: true },
     is_active: { type: 'boolean' },
+    // 12.B12: whether a password is set (the hash itself is never sent) and when.
+    has_password: { type: 'boolean' },
+    password_changed_at: { type: 'string', format: 'date-time', nullable: true },
     created_at: { type: 'string', format: 'date-time' },
     updated_at: { type: 'string', format: 'date-time' },
   },
@@ -283,7 +313,7 @@ export const loginRouteSchema: FastifySchema = {
   tags: ['Auth'],
   summary: 'Login with email and password',
   description:
-    'Honest "invalid email or password" on miss (no account enumeration). Accounts with no password are guided to their OAuth provider; unverified accounts are guided to verify first. Sets the refresh cookie on success. Alias of `/auth/email/login`.',
+    'Honest "invalid email or password" on miss (no account enumeration, the same argon2 time with or without an account). Accounts with no password get 400 `NO_PASSWORD` (sign in another way or set one in the profile); unverified accounts are guided to verify first. 10 wrong passwords in a row pause password sign-in of the account for 15 minutes: 429 `PASSWORD_LOCKED` with `details.retry_after_seconds` (codes, Telegram and OAuth keep working; the lock is in the audit log as `auth.password_locked`). Sets the refresh cookie on success. Alias of `/auth/email/login`.',
   body: {
     type: 'object',
     required: ['email', 'password'],
@@ -664,6 +694,111 @@ export const accountDeleteConfirmRouteSchema: FastifySchema = {
   response: responses({
     204: { type: 'null', description: 'Account deleted' },
   }),
+};
+
+export const ldapLoginRouteSchema: FastifySchema = {
+  tags: ['Auth'],
+  summary: 'Sign in with a university account (LDAP / Active Directory)',
+  description: [
+    'Only when the server has LDAP_URL (see `GET /auth/providers` → `ldap`), else 404 `LDAP_DISABLED`.',
+    'The directory finds exactly one entry for the login (LDAP_SEARCH_FILTER) and checks the password by binding as it;',
+    'the password is never stored. Wrong login or password — 401 `INVALID_CREDENTIALS`; directory down or the service account refused —',
+    '503 `LDAP_UNAVAILABLE` (`details.reason`). The account is found by its directory id, else by the directory email',
+    '(the directory vouches for it), else created with the full name from the directory. Then as any sign-in: session `ldap`,',
+    '`auth.login` in the audit log, the refresh cookie. 30 per minute per IP.',
+  ].join(' '),
+  body: {
+    type: 'object',
+    required: ['login', 'password'],
+    properties: {
+      login: { type: 'string', minLength: 1, maxLength: 256 },
+      password: { type: 'string', minLength: 1, maxLength: 256 },
+    },
+  },
+  response: responses({ 200: tokenPair }),
+};
+
+// ─── A password as an additional sign-in method (12.B12, ADR-034) ─────────────
+
+const passwordResult = {
+  type: 'object',
+  properties: {
+    has_password: { type: 'boolean' },
+    password_changed_at: { type: 'string', format: 'date-time' },
+    signed_out_sessions: { type: 'integer', description: 'Other sessions that were ended' },
+  },
+} as const;
+
+const passwordPolicy =
+  'Policy: 8–128 characters, a letter and a digit, not a well-known password, not built from the email or name — ' +
+  'otherwise 400 `WEAK_PASSWORD` with `details.reasons` (`too_short`, `too_long`, `needs_letter`, `needs_digit`, `common`, `personal`, `same_as_current`).';
+
+export const passwordCodeRouteSchema: FastifySchema = {
+  tags: ['Auth'],
+  summary: 'Send a code to set a password (step 1)',
+  description:
+    'Sends a 6-digit code (`set_password`, valid 10 minutes, one per minute) to the account’s email. ' +
+    'A password signs in together with the email, so an account without one gets 400 `EMAIL_REQUIRED`. ' +
+    'With `password` (optional) the policy is checked first: a weak one gets 400 `WEAK_PASSWORD` and no code is sent.',
+  security: [{ bearerAuth: [] }],
+  body: {
+    type: 'object',
+    properties: {
+      password: { type: 'string', minLength: 1, maxLength: PASSWORD_MAX_LENGTH },
+    },
+  },
+  response: responses({
+    200: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['otp_sent'] },
+        channel: { type: 'string', enum: ['email'] },
+        email: { type: 'string' },
+      },
+    },
+  }),
+};
+
+export const passwordSetRouteSchema: FastifySchema = {
+  tags: ['Auth'],
+  summary: 'Set a password with the code (step 2) — also a reset of a forgotten one',
+  description: [
+    'Sets the first password or replaces a forgotten one. The policy is checked before the code, so a weak password does not use it up.',
+    passwordPolicy,
+    'The email the code went to becomes verified and a sign-in method. Other sessions are ended, a «password changed» letter goes to the inbox,',
+    'the audit log gets `auth.password_set`.',
+  ].join(' '),
+  security: [{ bearerAuth: [] }],
+  body: {
+    type: 'object',
+    required: ['code', 'password'],
+    properties: {
+      code: { type: 'string', pattern: '^\\d{6}$' },
+      password: { type: 'string', minLength: 1, maxLength: PASSWORD_MAX_LENGTH },
+    },
+  },
+  response: responses({ 200: passwordResult }),
+};
+
+export const passwordChangeRouteSchema: FastifySchema = {
+  tags: ['Auth'],
+  summary: 'Change the password knowing the current one',
+  description: [
+    '400 `NO_PASSWORD` when none is set yet (use the code flow), 400 `WRONG_PASSWORD` for a wrong current one —',
+    'wrong ones count toward the same lock as sign-in (10 in a row → 429 `PASSWORD_LOCKED` for 15 minutes, `details.retry_after_seconds`).',
+    passwordPolicy,
+    'Other sessions are ended, a «password changed» letter goes to the inbox, the audit log gets `auth.password_changed`.',
+  ].join(' '),
+  security: [{ bearerAuth: [] }],
+  body: {
+    type: 'object',
+    required: ['current_password', 'password'],
+    properties: {
+      current_password: { type: 'string', minLength: 1, maxLength: PASSWORD_MAX_LENGTH },
+      password: { type: 'string', minLength: 1, maxLength: PASSWORD_MAX_LENGTH },
+    },
+  },
+  response: responses({ 200: passwordResult }),
 };
 
 export const getMeRouteSchema: FastifySchema = {

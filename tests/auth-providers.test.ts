@@ -36,6 +36,9 @@ describe('GET /api/v1/auth/providers', () => {
       github: true,
       telegram: true,
       demo: false,
+      ldap: false,
+      ldap_label: null,
+      ldap_hint: null,
     });
   });
 });
@@ -54,7 +57,33 @@ describe('authProviders', () => {
       github: false,
       telegram: false,
       demo: false,
+      ldap: false,
+      ldap_label: null,
+      ldap_hint: null,
     });
+  });
+
+  it('a university account counts with LDAP_URL and a search base (12.B10)', () => {
+    const env = parseEnv({
+      ...base,
+      LDAP_URL: 'ldaps://dc.university.local',
+      LDAP_SEARCH_BASE: 'OU=Staff,DC=university,DC=local',
+      LDAP_LOGIN_HINT: 'Логин как в компьютерных классах',
+    });
+    expect(authProviders(env)).toMatchObject({
+      ldap: true,
+      ldap_label: 'Учётная запись университета',
+      ldap_hint: 'Логин как в компьютерных классах',
+    });
+    expect(() => parseEnv({ ...base, LDAP_URL: 'ldap://dc' })).toThrow(/LDAP_SEARCH_BASE/);
+    expect(() =>
+      parseEnv({
+        ...base,
+        LDAP_URL: 'ldap://dc',
+        LDAP_SEARCH_BASE: 'DC=u',
+        LDAP_BIND_DN: 'CN=svc',
+      }),
+    ).toThrow(/LDAP_BIND_PASSWORD/);
   });
 
   it('email needs SMTP or Resend in production, but not in development', () => {

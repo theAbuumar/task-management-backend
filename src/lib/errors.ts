@@ -76,7 +76,16 @@ export type ErrorCode =
   | 'AUTHOR_NOT_MEMBER'
   | 'AUTHOR_NOT_ADMIN'
   | 'PROJECT_NOT_FOUND'
-  | 'NOT_DEPARTMENT_HEAD';
+  | 'NOT_DEPARTMENT_HEAD'
+  | 'NO_CODE_CHANNEL'
+  | 'EMAIL_REQUIRED'
+  | 'WEAK_PASSWORD'
+  | 'WRONG_PASSWORD'
+  | 'PASSWORD_LOCKED'
+  | 'NOT_OWNER'
+  | 'NEW_OWNER_INVALID'
+  | 'LDAP_DISABLED'
+  | 'LDAP_UNAVAILABLE';
 
 /**
  * Catalog of every error code with its meaning — the contract clients translate
@@ -172,6 +181,21 @@ export const ERROR_CODES: Record<ErrorCode, string> = {
   PROJECT_NOT_FOUND: 'The project of the planned report is gone or no longer visible to its author',
   NOT_DEPARTMENT_HEAD:
     'The weekly digest summarises a department you head — you are not the head of any department',
+  NO_CODE_CHANNEL:
+    'There is no email or Telegram to send a confirmation code to — link a sign-in method with one first',
+  EMAIL_REQUIRED: 'A password signs in together with an email — add an email to the account first',
+  WEAK_PASSWORD:
+    'The password does not meet the policy: 8–128 characters, letters and digits, not a common or personal one (details.reasons)',
+  WRONG_PASSWORD: 'The current password is wrong',
+  PASSWORD_LOCKED:
+    'Too many wrong passwords — password sign-in is paused (details.retry_after_seconds); a code by email, Telegram, Google or GitHub still work',
+  NOT_OWNER: 'Only the owner of the workspace can do this',
+  NEW_OWNER_INVALID:
+    'The new owner must be an active member of the workspace other than the current owner and not a guest (details.reason)',
+  LDAP_DISABLED:
+    'Sign-in with a university account (LDAP / Active Directory) is not set up on this server',
+  LDAP_UNAVAILABLE:
+    'The university directory does not answer or refuses the service account — sign in another way (details.reason)',
 };
 
 /**
