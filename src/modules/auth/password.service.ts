@@ -126,12 +126,14 @@ async function storePassword(
   }
   const ended = await revokeOtherSessions(prisma, user.id, keepSessionId);
   if (user.email) {
+    // The password is already changed: a mail server that is down or not set up
+    // (a stand without SMTP) must not turn that into an error.
     await sendPasswordChangedEmail(
       user.email,
       changedAt,
       user.locale === 'en' ? 'en' : 'ru',
       user.timezone ?? 'UTC',
-    );
+    ).catch(() => undefined);
   }
   return { has_password: true, password_changed_at: changedAt, signed_out_sessions: ended.length };
 }

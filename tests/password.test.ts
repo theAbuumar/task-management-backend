@@ -24,6 +24,7 @@ import { signAccessToken } from '../src/lib/jwt.js';
 const TS = Date.now();
 const STRONG = 'Ректорат2026!';
 const NEWER = 'Kafedra-77-otchet';
+const THIRD = 'Tretiy-parol-2026';
 const emails = {
   setter: `pwd-set-${TS}@example.com`,
   sessions: `pwd-sess-${TS}@example.com`,
@@ -307,6 +308,25 @@ describe('sessions after a password change', () => {
       where: { action: 'auth.password_changed', target_id: me.id },
     });
     expect(audit).toBeTruthy();
+  });
+
+  it('a mail server failure after the change does not undo or fail it', async () => {
+    const ip = nextIp();
+    const me = await signInByCode(emails.sessions, ip);
+    // The dev mailer prints letters with console.info: the «changed» letter fails.
+    consoleSpy.mockImplementation((...args: unknown[]) => {
+      if (args.join(' ').includes('Пароль для входа изменён')) throw new Error('SMTP down');
+    });
+    const res = await client(ip, me.token).post('/api/v1/auth/password/change', {
+      current_password: NEWER,
+      password: THIRD,
+    });
+    expect(res.status).toBe(200);
+    const login = await client(ip).post('/api/v1/auth/login', {
+      email: emails.sessions,
+      password: THIRD,
+    });
+    expect(login.status).toBe(200);
   });
 
   it('change before any password is set: NO_PASSWORD', async () => {
