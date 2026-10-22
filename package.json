@@ -21,6 +21,7 @@
     "prisma:generate": "prisma generate",
     "prisma:seed": "prisma db seed",
     "telegram:set-webhook": "tsx src/scripts/set-telegram-webhook.ts",
+    "telegram:check": "tsx src/scripts/telegram-check.ts",
     "demo:seed": "tsx src/prisma/seed-demo.ts",
     "demo:reset": "tsx src/prisma/seed-demo.ts",
     "perf:10k": "tsx src/scripts/perf-10k.ts",
